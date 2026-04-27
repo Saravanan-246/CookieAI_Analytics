@@ -1,7 +1,6 @@
 import { apiRequest } from "./api";
 
 export const authService = {
-
   /* ================= LOGIN ================= */
   login: async (credentials) => {
     try {
@@ -9,14 +8,16 @@ export const authService = {
 
       const data = res?.data || res;
 
-      // ✅ store token
-      if (data?.token) {
-        localStorage.setItem("token", data.token);
+      if (!data?.token || !data?.user) {
+        throw new Error("Invalid login response");
       }
+
+      // 🔥 store token once
+      localStorage.setItem("token", data.token);
 
       return data;
     } catch (error) {
-      console.error("Login error:", error);
+      console.error("Login error");
       throw error;
     }
   },
@@ -28,14 +29,16 @@ export const authService = {
 
       const data = res?.data || res;
 
-      // ✅ auto login after signup (optional but good UX)
-      if (data?.token) {
-        localStorage.setItem("token", data.token);
+      if (!data?.token || !data?.user) {
+        throw new Error("Invalid signup response");
       }
+
+      // 🔥 auto login after signup
+      localStorage.setItem("token", data.token);
 
       return data;
     } catch (error) {
-      console.error("Signup error:", error);
+      console.error("Signup error");
       throw error;
     }
   },
@@ -45,14 +48,22 @@ export const authService = {
     try {
       const token = localStorage.getItem("token");
 
-      if (!token) return null; // ✅ no API call if not logged
+      if (!token) return null;
 
       const res = await apiRequest.get("/auth/me");
 
-      return res?.data || res;
+      const data = res?.data || res;
+
+      if (!data?.user) return null;
+
+      return data;
     } catch (error) {
-      console.error("Get user error:", error);
-      return null; // ✅ safe fallback
+      console.warn("Auth restore failed");
+
+      // 🔥 remove invalid token
+      localStorage.removeItem("token");
+
+      return null;
     }
   },
 
@@ -60,13 +71,13 @@ export const authService = {
   logout: () => {
     localStorage.removeItem("token");
 
-    // optional: clear everything
-    localStorage.clear();
+    // 🔥 don't clear everything (important fix)
+    // localStorage.clear(); ❌ REMOVE THIS
 
-    // redirect
-    window.location.href = "/login";
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
   },
-
 };
 
 export default authService;

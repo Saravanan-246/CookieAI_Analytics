@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../app/providers";
-import Button from "../../components/ui/Button";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 
 const Login = () => {
@@ -56,52 +55,52 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-gray-50">
+    <div className="min-h-screen flex bg-gray-50">
 
-      {/* ===== LEFT SIDE (BRAND) ===== */}
-      <div className="hidden lg:flex flex-col justify-center px-16 bg-gradient-to-br from-indigo-600 to-indigo-500 text-white relative overflow-hidden">
+      {/* LEFT PANEL */}
+      <div className="hidden lg:flex w-1/2 items-center justify-center bg-gradient-to-br from-indigo-600 to-indigo-500 relative overflow-hidden">
 
-        {/* subtle background glow */}
-        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_30%,white,transparent_40%)]" />
+        {/* soft glow */}
+        <div className="absolute w-[500px] h-[500px] bg-indigo-400/20 blur-3xl rounded-full" />
 
-        <div className="relative space-y-6 max-w-md">
+        <div className="relative text-white max-w-md space-y-6 px-10">
           <h1 className="text-4xl font-bold tracking-tight">
             CookieAI
           </h1>
 
-          <p className="text-indigo-100 text-sm leading-relaxed">
-            Privacy-first analytics platform built for developers.  
-            Track real-time user behavior with a fast, minimal interface.
+          <p className="text-sm text-indigo-100 leading-relaxed">
+            A modern privacy-first analytics platform designed for speed,
+            simplicity, and real-time insights.
           </p>
 
           <div className="space-y-2 text-sm text-indigo-100">
-            <p>• Real-time analytics</p>
-            <p>• No cookies tracking</p>
-            <p>• Lightweight & fast</p>
+            <p>Real-time tracking</p>
+            <p>No cookies required</p>
+            <p>Fast and lightweight</p>
           </div>
         </div>
       </div>
 
-      {/* ===== RIGHT SIDE ===== */}
-      <div className="flex items-center justify-center px-6 py-10">
+      {/* RIGHT PANEL */}
+      <div className="flex flex-1 items-center justify-center px-6 py-10">
 
         <div className="w-full max-w-md">
 
-          {/* ===== MOBILE BRAND ===== */}
-          <div className="lg:hidden mb-6 text-center">
+          {/* MOBILE TITLE */}
+          <div className="lg:hidden text-center mb-6">
             <h1 className="text-xl font-semibold">CookieAI</h1>
           </div>
 
-          {/* ===== CARD ===== */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-6">
+          {/* CARD */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
 
             {/* HEADER */}
             <div>
               <h2 className="text-2xl font-semibold text-gray-900">
-                Sign in
+                Welcome back
               </h2>
               <p className="text-sm text-gray-500">
-                Enter your credentials to continue
+                Sign in to continue
               </p>
             </div>
 
@@ -125,7 +124,7 @@ const Login = () => {
                   value={formData.email}
                   onChange={handleInputChange}
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
-                    focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                 />
               </div>
 
@@ -139,34 +138,27 @@ const Login = () => {
                   value={formData.password}
                   onChange={handleInputChange}
                   className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm
-                    focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                 />
 
                 <button
                   type="button"
-                  onClick={() => setShowPassword((p) => !p)}
-                  className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-700"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-gray-400"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
 
-              {/* ACTION ROW */}
-              <div className="flex justify-between text-xs text-gray-500">
-                <span></span>
-                <button type="button" className="hover:text-indigo-600">
-                  Forgot password?
-                </button>
-              </div>
-
               {/* BUTTON */}
-              <Button
+              <button
                 type="submit"
-                className="w-full"
-                loading={loading}
+                disabled={loading}
+                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium
+                hover:bg-indigo-700 transition active:scale-[0.98]"
               >
                 {loading ? "Signing in..." : "Sign in"}
-              </Button>
+              </button>
 
               {/* FOOTER */}
               <p className="text-sm text-center text-gray-500">
@@ -180,7 +172,6 @@ const Login = () => {
               </p>
             </form>
           </div>
-
         </div>
       </div>
     </div>

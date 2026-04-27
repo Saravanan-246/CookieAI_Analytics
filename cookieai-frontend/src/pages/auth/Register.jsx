@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers";
-import Button from "../../components/ui/Button";
 import { User, Mail, Lock, Eye, EyeOff } from "lucide-react";
 
 const Register = () => {
@@ -20,7 +19,7 @@ const Register = () => {
   const { signup } = useAuth();
   const navigate = useNavigate();
 
-  /* ===== INPUT ===== */
+  /* ---------- INPUT ---------- */
   const handleInputChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
 
@@ -29,7 +28,7 @@ const Register = () => {
     }
   };
 
-  /* ===== VALIDATION ===== */
+  /* ---------- VALIDATION ---------- */
   const validate = () => {
     const err = {};
 
@@ -43,7 +42,7 @@ const Register = () => {
     return err;
   };
 
-  /* ===== SUBMIT ===== */
+  /* ---------- SUBMIT ---------- */
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -76,37 +75,37 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-gray-50">
+    <div className="min-h-screen flex bg-gray-50">
 
-      {/* ===== LEFT (BRAND + VALUE) ===== */}
-      <div className="hidden lg:flex flex-col justify-center px-16 bg-gradient-to-br from-indigo-600 to-indigo-500 text-white relative overflow-hidden">
+      {/* LEFT PANEL */}
+      <div className="hidden lg:flex w-1/2 items-center justify-center bg-gradient-to-br from-indigo-600 to-indigo-500 relative overflow-hidden">
+        <div className="absolute w-[500px] h-[500px] bg-indigo-400/20 blur-3xl rounded-full" />
 
-        <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_20%_30%,white,transparent_40%)]" />
-
-        <div className="relative space-y-6 max-w-md">
+        <div className="relative text-white max-w-md space-y-6 px-10">
           <h1 className="text-4xl font-bold tracking-tight">
-            Start with CookieAI
+            Create your account
           </h1>
 
-          <p className="text-indigo-100 text-sm leading-relaxed">
-            Create your account and start tracking real-time user behavior with a clean and powerful analytics dashboard.
+          <p className="text-sm text-indigo-100 leading-relaxed">
+            Start tracking user behavior in real-time with a fast,
+            privacy-focused analytics platform.
           </p>
 
           <div className="space-y-2 text-sm text-indigo-100">
-            <p>• Real-time tracking</p>
-            <p>• Privacy-first analytics</p>
-            <p>• Lightweight integration</p>
+            <p>Real-time insights</p>
+            <p>Privacy-first tracking</p>
+            <p>Lightweight integration</p>
           </div>
         </div>
       </div>
 
-      {/* ===== RIGHT ===== */}
-      <div className="flex items-center justify-center px-6 py-10">
+      {/* RIGHT PANEL */}
+      <div className="flex flex-1 items-center justify-center px-6 py-10">
 
         <div className="w-full max-w-md">
 
-          {/* MOBILE BRAND */}
-          <div className="lg:hidden mb-6 text-center">
+          {/* MOBILE TITLE */}
+          <div className="lg:hidden text-center mb-6">
             <h1 className="text-xl font-semibold">CookieAI</h1>
           </div>
 
@@ -116,10 +115,10 @@ const Register = () => {
             {/* HEADER */}
             <div>
               <h2 className="text-2xl font-semibold text-gray-900">
-                Create your account
+                Sign up
               </h2>
               <p className="text-sm text-gray-500">
-                It only takes a few seconds
+                Create your account to continue
               </p>
             </div>
 
@@ -130,6 +129,7 @@ const Register = () => {
               </div>
             )}
 
+            {/* FORM */}
             <form onSubmit={handleSubmit} className="space-y-4">
 
               {/* NAME */}
@@ -164,7 +164,7 @@ const Register = () => {
                 placeholder="Password"
               />
 
-              {/* CONFIRM */}
+              {/* CONFIRM PASSWORD */}
               <PasswordField
                 value={formData.confirmPassword}
                 onChange={handleInputChange}
@@ -176,9 +176,14 @@ const Register = () => {
               />
 
               {/* BUTTON */}
-              <Button type="submit" className="w-full" loading={loading}>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium
+                hover:bg-indigo-700 transition active:scale-[0.98]"
+              >
                 {loading ? "Creating account..." : "Create account"}
-              </Button>
+              </button>
 
               {/* FOOTER */}
               <p className="text-sm text-center text-gray-500">
@@ -199,7 +204,7 @@ const Register = () => {
   );
 };
 
-/* ===== INPUT COMPONENT ===== */
+/* INPUT FIELD */
 const InputField = ({ icon: Icon, error, ...props }) => (
   <div>
     <div className="relative">
@@ -207,14 +212,14 @@ const InputField = ({ icon: Icon, error, ...props }) => (
       <input
         {...props}
         className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
-        focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+        focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
       />
     </div>
     {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
   </div>
 );
 
-/* ===== PASSWORD FIELD ===== */
+/* PASSWORD FIELD */
 const PasswordField = ({
   value,
   onChange,
@@ -222,7 +227,7 @@ const PasswordField = ({
   setShow,
   error,
   name,
-  placeholder
+  placeholder,
 }) => (
   <div>
     <div className="relative">
@@ -234,12 +239,12 @@ const PasswordField = ({
         value={value}
         onChange={onChange}
         className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm
-        focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+        focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
       />
       <button
         type="button"
         onClick={() => setShow((p) => !p)}
-        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-700"
+        className="absolute right-3 top-2.5 text-gray-400"
       >
         {show ? <EyeOff size={16} /> : <Eye size={16} />}
       </button>

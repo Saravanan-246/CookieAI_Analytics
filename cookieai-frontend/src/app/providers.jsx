@@ -13,53 +13,51 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+
+  // 🔥 IMPORTANT: start false → no UI blocking
+  const [loading, setLoading] = useState(false);
 
   /* ================= INIT AUTH ================= */
   useEffect(() => {
-    let isMounted = true;
+    const token = localStorage.getItem("token");
 
-    const initAuth = async () => {
+    if (!token) return;
+
+    let cancelled = false;
+
+    const fetchUser = async () => {
       try {
-        const token = localStorage.getItem("token");
-
-        if (!token) {
-          if (isMounted) setLoading(false);
-          return;
-        }
-
         const res = await authService.getCurrentUser();
 
         const userData = res?.user || res?.data?.user;
 
         if (!userData) throw new Error("Invalid user");
 
-        if (isMounted) {
+        if (!cancelled) {
           setUser(userData);
         }
-
       } catch (error) {
-        console.error("Auth init failed:", error);
+        console.warn("Auth restore failed");
 
         localStorage.removeItem("token");
 
-        if (isMounted) {
+        if (!cancelled) {
           setUser(null);
         }
-      } finally {
-        if (isMounted) setLoading(false);
       }
     };
 
-    initAuth();
+    fetchUser();
 
     return () => {
-      isMounted = false;
+      cancelled = true;
     };
   }, []);
 
   /* ================= SIGNUP ================= */
   const signup = async (data) => {
+    setLoading(true);
+
     try {
       const res = await authService.signup(data);
 
@@ -71,18 +69,23 @@ export const AuthProvider = ({ children }) => {
       }
 
       localStorage.setItem("token", token);
+
+      // 🔥 instant UI update (no refresh needed)
       setUser(userData);
 
       return userData;
-
     } catch (error) {
-      console.error("Signup failed:", error);
+      console.error("Signup failed");
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
   /* ================= LOGIN ================= */
   const login = async (credentials) => {
+    setLoading(true);
+
     try {
       const res = await authService.login(credentials);
 
@@ -94,13 +97,16 @@ export const AuthProvider = ({ children }) => {
       }
 
       localStorage.setItem("token", token);
+
+      // 🔥 instant state update
       setUser(userData);
 
       return userData;
-
     } catch (error) {
-      console.error("Login failed:", error);
+      console.error("Login failed");
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -109,8 +115,10 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem("token");
     setUser(null);
 
-    // 🔥 optional redirect (clean UX)
-    window.location.href = "/login";
+    // 🔥 safe redirect
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
   };
 
   /* ================= VALUE ================= */

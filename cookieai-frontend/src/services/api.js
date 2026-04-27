@@ -18,11 +18,12 @@ api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token");
 
+    // 🔥 attach token always
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    /* ✅ KEEP REAL-TIME BUT NOT AGGRESSIVE */
+    // 🔥 prevent caching issues (important for analytics + auth)
     config.headers["Cache-Control"] = "no-cache";
 
     return config;
@@ -37,23 +38,31 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const url = error?.config?.url || "";
 
+    // 🔥 allow these APIs without redirect
     const isPublicApi =
       url.includes("/track") ||
       url.includes("/analytics") ||
       url.includes("/auth/login") ||
-      url.includes("/auth/signup");
+      url.includes("/auth/signup") ||
+      url.includes("/auth/register");
 
+    // 🔥 handle unauthorized properly
     if (status === 401 && !isPublicApi) {
       localStorage.removeItem("token");
-      window.location.href = "/login";
+
+      // 🔥 avoid multiple redirects loop
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
     }
 
+    // optional logs (keep clean)
     if (status === 403) {
-      console.error("Access forbidden:", error.response?.data);
+      console.warn("Forbidden access");
     }
 
     if (status >= 500) {
-      console.error("Server error:", error.response?.data);
+      console.error("Server error");
     }
 
     return Promise.reject(error);
