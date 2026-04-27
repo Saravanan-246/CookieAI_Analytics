@@ -42,6 +42,7 @@ const Login = () => {
 
     try {
       await login(formData);
+      await new Promise((r) => setTimeout(r, 0));
       navigate(from, { replace: true });
     } catch (err) {
       setError(

@@ -14,100 +14,71 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
 
-  // 🔥 IMPORTANT: start false → no UI blocking
-  const [loading, setLoading] = useState(false);
+  // 🔥 start true → wait until auth checked
+  const [loading, setLoading] = useState(true);
 
   /* ================= INIT AUTH ================= */
   useEffect(() => {
-    const token = localStorage.getItem("token");
-
-    if (!token) return;
-
     let cancelled = false;
 
-    const fetchUser = async () => {
+    const init = async () => {
       try {
+        const token = localStorage.getItem("token");
+
+        if (!token) {
+          setLoading(false);
+          return;
+        }
+
         const res = await authService.getCurrentUser();
 
         const userData = res?.user || res?.data?.user;
 
-        if (!userData) throw new Error("Invalid user");
-
-        if (!cancelled) {
+        if (userData && !cancelled) {
           setUser(userData);
         }
+
       } catch (error) {
         console.warn("Auth restore failed");
 
-        localStorage.removeItem("token");
-
-        if (!cancelled) {
-          setUser(null);
+        // 🔥 ONLY remove token if 401
+        if (error?.response?.status === 401) {
+          localStorage.removeItem("token");
+          if (!cancelled) setUser(null);
         }
+
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
 
-    fetchUser();
+    init();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  /* ================= SIGNUP ================= */
-  const signup = async (data) => {
-    setLoading(true);
-
-    try {
-      const res = await authService.signup(data);
-
-      const token = res?.token || res?.data?.token;
-      const userData = res?.user || res?.data?.user;
-
-      if (!token || !userData) {
-        throw new Error("Invalid signup response");
-      }
-
-      localStorage.setItem("token", token);
-
-      // 🔥 instant UI update (no refresh needed)
-      setUser(userData);
-
-      return userData;
-    } catch (error) {
-      console.error("Signup failed");
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   /* ================= LOGIN ================= */
   const login = async (credentials) => {
-    setLoading(true);
+    const res = await authService.login(credentials);
 
-    try {
-      const res = await authService.login(credentials);
+    const userData = res?.user || res?.data?.user;
 
-      const token = res?.token || res?.data?.token;
-      const userData = res?.user || res?.data?.user;
+    setUser(userData);
 
-      if (!token || !userData) {
-        throw new Error("Invalid login response");
-      }
+    return userData;
+  };
 
-      localStorage.setItem("token", token);
+  /* ================= SIGNUP ================= */
+  const signup = async (data) => {
+    const res = await authService.signup(data);
 
-      // 🔥 instant state update
-      setUser(userData);
+    const userData = res?.user || res?.data?.user;
 
-      return userData;
-    } catch (error) {
-      console.error("Login failed");
-      throw error;
-    } finally {
-      setLoading(false);
-    }
+    setUser(userData);
+
+    return userData;
   };
 
   /* ================= LOGOUT ================= */
@@ -115,24 +86,30 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem("token");
     setUser(null);
 
-    // 🔥 safe redirect
     if (window.location.pathname !== "/login") {
       window.location.href = "/login";
     }
   };
 
-  /* ================= VALUE ================= */
-  const value = {
-    user,
-    signup,
-    login,
-    logout,
-    loading,
-    isAuthenticated: !!user,
-  };
+  /* ================= LOADING BLOCK (IMPORTANT) ================= */
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-gray-500">
+        Loading...
+      </div>
+    );
+  }
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        signup,
+        logout,
+        isAuthenticated: !!user,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

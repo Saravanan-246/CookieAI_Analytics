@@ -60,6 +60,7 @@ const Register = () => {
         email: formData.email,
         password: formData.password,
       });
+      await new Promise((r) => setTimeout(r, 0));
 
       navigate("/dashboard");
     } catch (error) {
