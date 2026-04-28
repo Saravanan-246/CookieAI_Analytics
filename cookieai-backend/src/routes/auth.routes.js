@@ -5,6 +5,8 @@ const {
   signup,
   login,
   getMe,
+  forgotPassword,
+  resetPassword,
 } = require("../controllers/auth.controller");
 
 const authMiddleware = require("../middlewares/auth.middleware");
@@ -22,7 +24,7 @@ router.get("/health", (req, res) => {
 
 /* ---------- AUTH ROUTES ---------- */
 
-// 🔥 SIGNUP (FIXED NAME)
+// 🔐 SIGNUP
 router.post("/signup", rateLimiter, signup);
 
 // 🔐 LOGIN
@@ -30,6 +32,12 @@ router.post("/login", rateLimiter, login);
 
 // 👤 GET CURRENT USER
 router.get("/me", authMiddleware, getMe);
+
+// 🔥 FORGOT PASSWORD
+router.post("/forgot-password", rateLimiter, forgotPassword);
+
+// 🔥 RESET PASSWORD
+router.post("/reset-password", resetPassword);
 
 // 🔓 LOGOUT (optional)
 router.post("/logout", (req, res) => {

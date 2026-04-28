@@ -37,51 +37,58 @@ const Modal = ({
 
   if (!isOpen) return null;
 
-return (
-  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
 
-    {/* MODAL ONLY (NO OVERLAY) */}
-    <div
-      className={`
-        relative w-full ${sizes[size]}
-        bg-white rounded-2xl
-        shadow-[0_25px_80px_rgba(0,0,0,0.25)]
-        border border-gray-100
-        max-h-[90vh] overflow-hidden
-        animate-[scaleIn_.18s_ease]
-      `}
-    >
+      {/* WRAPPER FOR PERFECT CENTERING */}
+      <div className="w-full flex items-center justify-center">
 
-      {/* HEADER */}
-      {title && (
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h3 className="text-sm font-semibold text-gray-900">
-            {title}
-          </h3>
+        {/* MODAL */}
+        <div
+          className={`
+            w-full ${sizes[size]}
+            bg-white rounded-2xl
+            border border-slate-200
+            shadow-[0_20px_60px_rgba(0,0,0,0.15)]
+            max-h-[85vh]
+            flex flex-col
+            overflow-hidden
+            animate-[scaleIn_.18s_ease]
+          `}
+        >
 
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
-          >
-            ✕
-          </button>
+          {/* HEADER */}
+          {title && (
+            <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+              <h3 className="text-sm font-semibold text-slate-900">
+                {title}
+              </h3>
+
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* BODY */}
+          <div className="px-6 py-5 overflow-y-auto flex-1 text-sm text-slate-700">
+            {children}
+          </div>
+
+          {/* FOOTER */}
+          {footer && (
+            <div className="px-6 py-4 border-t bg-slate-50 flex justify-end gap-2">
+              {footer}
+            </div>
+          )}
         </div>
-      )}
 
-      {/* BODY */}
-      <div className="px-6 py-5 overflow-y-auto max-h-[70vh]">
-        {children}
       </div>
-
-      {/* FOOTER */}
-      {footer && (
-        <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2">
-          {footer}
-        </div>
-      )}
     </div>
-  </div>
-);
+  );
 };
 
 export default Modal;

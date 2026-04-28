@@ -1,182 +1,211 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../app/providers";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
+import { motion } from "framer-motion";
 
+/* ================= MAIN ================= */
 const Login = () => {
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
+  const [ready, setReady] = useState(false);
 
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  // ✅ real mount-ready (no fake UX delay)
+  useEffect(() => {
+    setReady(true);
+  }, []);
 
+  if (!ready) return <LoginSkeleton />;
+
+  return <LoginForm />;
+};
+
+/* ================= FORM ================= */
+const LoginForm = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = location.state?.from || "/dashboard";
 
-  /* ---------- INPUT ---------- */
-  const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-    if (error) setError("");
+  const [formData, setFormData] = useState({
+    email: "",
+    password: "",
+  });
+
+  const [ui, setUI] = useState({
+    loading: false,
+    error: "",
+    showPassword: false,
+  });
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+
+    setFormData((prev) => ({ ...prev, [name]: value }));
+
+    if (ui.error) {
+      setUI((p) => ({ ...p, error: "" }));
+    }
   };
 
-  /* ---------- SUBMIT ---------- */
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (ui.loading) return;
+
     if (!formData.email || !formData.password) {
-      setError("Email and password required");
+      setUI((p) => ({
+        ...p,
+        error: "Email and password required",
+      }));
       return;
     }
 
-    setLoading(true);
-    setError("");
+    setUI((p) => ({ ...p, loading: true, error: "" }));
 
     try {
       await login(formData);
-      await new Promise((r) => setTimeout(r, 0));
       navigate(from, { replace: true });
     } catch (err) {
-      setError(
-        err?.data?.message ||
-        err?.response?.data?.message ||
-        "Invalid email or password"
-      );
+      setUI((p) => ({
+        ...p,
+        error:
+          err?.response?.data?.message ||
+          "Invalid email or password",
+      }));
     } finally {
-      setLoading(false);
+      setUI((p) => ({ ...p, loading: false }));
     }
   };
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-gradient-to-br from-slate-50 to-slate-100">
 
-      {/* LEFT PANEL */}
-      <div className="hidden lg:flex w-1/2 items-center justify-center bg-gradient-to-br from-indigo-600 to-indigo-500 relative overflow-hidden">
-
-        {/* soft glow */}
-        <div className="absolute w-[500px] h-[500px] bg-indigo-400/20 blur-3xl rounded-full" />
-
-        <div className="relative text-white max-w-md space-y-6 px-10">
-          <h1 className="text-4xl font-bold tracking-tight">
-            CookieAI
-          </h1>
-
-          <p className="text-sm text-indigo-100 leading-relaxed">
-            A modern privacy-first analytics platform designed for speed,
-            simplicity, and real-time insights.
+      {/* LEFT */}
+      <div className="hidden lg:flex w-1/2 items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-600">
+        <div className="text-white max-w-md px-10 space-y-4">
+          <h1 className="text-3xl font-semibold">CookieAI</h1>
+          <p className="text-sm text-indigo-100">
+            Privacy-first analytics platform built for speed and simplicity.
           </p>
-
-          <div className="space-y-2 text-sm text-indigo-100">
-            <p>Real-time tracking</p>
-            <p>No cookies required</p>
-            <p>Fast and lightweight</p>
-          </div>
         </div>
       </div>
 
-      {/* RIGHT PANEL */}
-      <div className="flex flex-1 items-center justify-center px-6 py-10">
+      {/* RIGHT */}
+      <div className="flex flex-1 items-center justify-center px-6">
 
-        <div className="w-full max-w-md">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6"
+        >
 
-          {/* MOBILE TITLE */}
-          <div className="lg:hidden text-center mb-6">
-            <h1 className="text-xl font-semibold">CookieAI</h1>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">
+              Sign in
+            </h2>
+            <p className="text-sm text-slate-500">
+              Enter your credentials
+            </p>
           </div>
 
-          {/* CARD */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6">
+          {ui.error && (
+            <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+              {ui.error}
+            </div>
+          )}
 
-            {/* HEADER */}
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-900">
-                Welcome back
-              </h2>
-              <p className="text-sm text-gray-500">
-                Sign in to continue
-              </p>
+          <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* EMAIL */}
+            <div className="relative">
+              <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+              <input
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                disabled={ui.loading}
+                placeholder="Email"
+                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm
+                focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-gray-100"
+              />
             </div>
 
-            {/* ERROR */}
-            {error && (
-              <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
-                {error}
-              </div>
-            )}
+            {/* PASSWORD */}
+            <div className="relative">
+              <Lock className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+              <input
+                name="password"
+                type={ui.showPassword ? "text" : "password"}
+                value={formData.password}
+                onChange={handleChange}
+                disabled={ui.loading}
+                placeholder="Password"
+                className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm
+                focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-gray-100"
+              />
 
-            {/* FORM */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-
-              {/* EMAIL */}
-              <div className="relative">
-                <Mail className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
-                <input
-                  name="email"
-                  type="email"
-                  placeholder="Email address"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm
-                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                />
-              </div>
-
-              {/* PASSWORD */}
-              <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
-                <input
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Password"
-                  value={formData.password}
-                  onChange={handleInputChange}
-                  className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm
-                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-2.5 text-gray-400"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-
-              {/* BUTTON */}
               <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium
-                hover:bg-indigo-700 transition active:scale-[0.98]"
+                type="button"
+                onClick={() =>
+                  setUI((p) => ({
+                    ...p,
+                    showPassword: !p.showPassword,
+                  }))
+                }
+                className="absolute right-3 top-2.5 text-slate-400"
               >
-                {loading ? "Signing in..." : "Sign in"}
+                {ui.showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
+            </div>
 
-              {/* FOOTER */}
-              <p className="text-sm text-center text-gray-500">
-                Don’t have an account?{" "}
-                <Link
-                  to="/register"
-                  className="text-indigo-600 font-medium hover:underline"
-                >
-                  Create account
-                </Link>
-              </p>
-            </form>
-          </div>
-        </div>
+            <div className="text-right">
+              <Link
+                to="/forgot-password"
+                className="text-xs text-indigo-600 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
+            <button
+              type="submit"
+              disabled={ui.loading}
+              className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium
+              hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {ui.loading ? "Signing in..." : "Sign in"}
+            </button>
+
+            <p className="text-sm text-center text-slate-500">
+              Don’t have an account?{" "}
+              <Link to="/register" className="text-indigo-600 hover:underline">
+                Create account
+              </Link>
+            </p>
+
+          </form>
+        </motion.div>
       </div>
     </div>
   );
 };
+
+/* ================= SKELETON ================= */
+const LoginSkeleton = () => (
+  <div className="min-h-screen flex items-center justify-center bg-slate-100">
+    <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow animate-pulse space-y-4">
+
+      <div className="h-6 bg-gray-200 rounded w-1/2" />
+      <div className="h-4 bg-gray-200 rounded w-2/3" />
+
+      <div className="space-y-3">
+        <div className="h-10 bg-gray-200 rounded" />
+        <div className="h-10 bg-gray-200 rounded" />
+      </div>
+
+      <div className="h-10 bg-gray-300 rounded" />
+    </div>
+  </div>
+);
 
 export default Login;

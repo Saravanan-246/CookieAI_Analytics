@@ -18,7 +18,7 @@ const errorHandler = require("./middlewares/error.middleware");
 const app = express();
 
 /* =======================================================
-   🔥 SECURITY
+   🔐 SECURITY
 ======================================================= */
 app.use(
   helmet({
@@ -28,29 +28,28 @@ app.use(
 );
 
 /* =======================================================
-   🔥 CORS (SMART + TRACKER SAFE)
+   🌐 CORS (PRODUCTION SAFE)
 ======================================================= */
-const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
 app.use(
   cors({
-    origin: function (origin, callback) {
+    origin: (origin, callback) => {
+      // allow server-to-server / postman
       if (!origin) return callback(null, true);
 
-      if (origin === clientUrl) {
-        return callback(null, true);
-      }
+      // allow frontend
+      if (origin === CLIENT_URL) return callback(null, true);
 
-      return callback(null, true); // 🔥 allow tracker from ANY site
+      // 🔥 allow tracker script from ANY website
+      return callback(null, true);
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
-    optionsSuccessStatus: 200,
   })
 );
 
 /* =======================================================
-   🔥 BODY PARSING
+   📦 BODY PARSER
 ======================================================= */
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -59,10 +58,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 
 /* =======================================================
-   🔥 TRACK FIX (VERY IMPORTANT)
+   📡 TRACK FIX (CRITICAL)
 ======================================================= */
 
-/* Accept ALL types (beacon + json + text) */
+// support sendBeacon / text payload
 app.use("/api/track", express.text({ type: "*/*" }));
 
 app.use("/api/track", (req, res, next) => {
@@ -71,7 +70,6 @@ app.use("/api/track", (req, res, next) => {
       req.body = JSON.parse(req.body);
     }
 
-    /* 🔥 SUPPORT ARRAY (batch) */
     if (Array.isArray(req.body)) {
       req.body = req.body.filter(Boolean);
     }
@@ -84,44 +82,57 @@ app.use("/api/track", (req, res, next) => {
 });
 
 /* =======================================================
-   🔥 STATIC (TRACKER FILE SERVE)
+   📁 STATIC (TRACKER SERVE)
 ======================================================= */
 const publicPath = path.join(__dirname, "../public");
 
 app.use(express.static(publicPath));
 
-/* 🔥 FORCE tracker.js route (NO MORE 404 EVER) */
+// 🔥 always serve tracker.js
 app.get("/tracker.js", (req, res) => {
   res.sendFile(path.join(publicPath, "tracker.js"));
 });
 
-/* ---------- RATE LIMIT ---------- */
+/* =======================================================
+   🚦 RATE LIMIT
+======================================================= */
 app.use("/api/scan", rateLimiter);
 app.use("/api/track", rateLimiter);
+app.use("/api/auth/forgot-password", rateLimiter); // 🔥 protect abuse
 
-/* ---------- ROUTES ---------- */
+/* =======================================================
+   🔗 ROUTES
+======================================================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/scan", scanRoutes);
 app.use("/api/track", trackRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/sites", siteRoutes);
 
-/* ---------- DEBUG ---------- */
+/* =======================================================
+   🧪 DEBUG
+======================================================= */
 const Event = require("./models/event.model");
+
 app.get("/debug/events", async (req, res) => {
   const data = await Event.find().limit(10);
   res.json(data);
 });
 
-/* ---------- HEALTH ---------- */
+/* =======================================================
+   ❤️ HEALTH CHECK
+======================================================= */
 app.get("/", (req, res) => {
   res.json({
-    message: "CookieAI Backend Running 🚀",
+    message: "CookieAI Backend Running",
     status: "OK",
+    time: new Date(),
   });
 });
 
-/* ---------- 404 ---------- */
+/* =======================================================
+   ❌ 404
+======================================================= */
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -129,7 +140,9 @@ app.use((req, res) => {
   });
 });
 
-/* ---------- ERROR ---------- */
+/* =======================================================
+   ⚠️ ERROR HANDLER
+======================================================= */
 app.use(errorHandler);
 
 module.exports = app;

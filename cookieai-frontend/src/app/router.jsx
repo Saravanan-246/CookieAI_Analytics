@@ -13,6 +13,20 @@ import Settings from "../pages/settings/Settings";
 
 import Login from "../pages/auth/Login";
 import Register from "../pages/auth/Register";
+import ForgotPassword from "../pages/auth/ForgotPassword";
+import ResetPassword from "../pages/auth/ResetPassword";
+
+/* ---------- AUTH GUARD (FOR LOGIN/REGISTER) ---------- */
+const PublicRoute = ({ children }) => {
+  const token = localStorage.getItem("token");
+
+  // 🔥 if already logged in → go dashboard
+  if (token) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+};
 
 /* ---------- ROUTER ---------- */
 export const router = createBrowserRouter([
@@ -20,11 +34,29 @@ export const router = createBrowserRouter([
   /* ================= AUTH ================= */
   {
     path: "/login",
-    element: <Login />,
+    element: (
+      <PublicRoute>
+        <Login />
+      </PublicRoute>
+    ),
   },
   {
     path: "/register",
-    element: <Register />,
+    element: (
+      <PublicRoute>
+        <Register />
+      </PublicRoute>
+    ),
+  },
+
+  /* 🔥 NEW ROUTES */
+  {
+    path: "/forgot-password",
+    element: <ForgotPassword />,
+  },
+  {
+    path: "/reset-password",
+    element: <ResetPassword />,
   },
 
   /* ================= APP ================= */
