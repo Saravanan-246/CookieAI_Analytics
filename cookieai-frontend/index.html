@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
 
-    <!-- Viewport (mobile safe) -->
+    <!-- Viewport -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
@@ -16,13 +16,13 @@
     <title>CookieAI – Privacy-first Analytics</title>
     <meta
       name="description"
-      content="CookieAI is a modern, privacy-first analytics platform for tracking real-time user behavior."
+      content="CookieAI is a modern, privacy-first analytics platform."
     />
 
     <!-- Favicon -->
     <link rel="icon" href="/favicon.svg" />
 
-    <!-- Fonts (optimized) -->
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -30,9 +30,8 @@
       rel="stylesheet"
     />
 
-    <!-- Base Styles + Loader -->
+    <!-- BASE + LOADER -->
     <style>
-      /* RESET */
       * {
         margin: 0;
         padding: 0;
@@ -42,22 +41,17 @@
       html, body {
         height: 100%;
         width: 100%;
-        overflow-x: hidden;
         background: #f8fafc;
         color: #0f172a;
-        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        font-family: "Inter", system-ui, sans-serif;
         -webkit-font-smoothing: antialiased;
-        text-rendering: optimizeLegibility;
       }
 
       #root {
         height: 100%;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
       }
 
-      /* ===== PREMIUM LOADER (RELIABLE) ===== */
+      /* ===== LOADER ===== */
       #app-loader {
         position: fixed;
         inset: 0;
@@ -73,17 +67,16 @@
       }
 
       .loader-ring {
-        width: 32px;
-        height: 32px;
+        width: 34px;
+        height: 34px;
         border-radius: 50%;
         border: 3px solid #e2e8f0;
         border-top-color: #6366f1;
-        animation: spin 0.8s linear infinite;
+        animation: spin 0.7s linear infinite;
       }
 
       .loader-text {
         font-weight: 500;
-        letter-spacing: 0.3px;
       }
 
       @keyframes spin {
@@ -92,7 +85,32 @@
         }
       }
 
-      /* smooth fade out when React mounts */
+      /* ===== OFFLINE STATE ===== */
+      .offline {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .offline-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 2px solid #ef4444;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        color: #ef4444;
+      }
+
+      .offline-text {
+        font-size: 13px;
+        color: #475569;
+      }
+
+      /* fade out */
       .loader-hidden {
         opacity: 0;
         pointer-events: none;
@@ -102,6 +120,7 @@
   </head>
 
   <body>
+
     <!-- LOADER -->
     <div id="app-loader">
       <div class="loader-ring"></div>
@@ -111,18 +130,50 @@
     <!-- ROOT -->
     <div id="root"></div>
 
-    <!-- SCRIPT -->
     <script type="module" src="/src/main.jsx"></script>
 
-    <!-- REMOVE LOADER AFTER APP LOAD -->
+    <!-- SCRIPT -->
     <script>
+      const loader = document.getElementById("app-loader");
+
+      /* ===== OFFLINE HANDLING ===== */
+      function showOffline() {
+        loader.innerHTML = `
+          <div class="offline">
+            <div class="offline-icon">!</div>
+            <div class="offline-text">No internet connection</div>
+          </div>
+        `;
+      }
+
+      function showLoading() {
+        loader.innerHTML = `
+          <div class="loader-ring"></div>
+          <div class="loader-text">Loading CookieAI</div>
+        `;
+      }
+
+      function checkConnection() {
+        if (!navigator.onLine) {
+          showOffline();
+        } else {
+          showLoading();
+        }
+      }
+
+      window.addEventListener("offline", showOffline);
+      window.addEventListener("online", showLoading);
+
+      checkConnection();
+
+      /* ===== REMOVE LOADER AFTER APP LOAD ===== */
       window.addEventListener("load", () => {
-        const loader = document.getElementById("app-loader");
-        if (loader) {
+        if (navigator.onLine) {
           loader.classList.add("loader-hidden");
           setTimeout(() => loader.remove(), 300);
         }
       });
     </script>
+
   </body>
 </html>
