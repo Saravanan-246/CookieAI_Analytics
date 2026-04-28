@@ -77,6 +77,10 @@ const eventSchema = new mongoose.Schema(
     },
 
     /* ---------- TIME ---------- */
+    time: {
+      type: Date,
+      index: true,
+    },
     timestamp: {
       type: Date,
       default: Date.now,
@@ -92,9 +96,11 @@ const eventSchema = new mongoose.Schema(
 
 // 🔥 fast dashboard queries
 eventSchema.index({ siteId: 1, timestamp: -1 });
+eventSchema.index({ siteId: 1, time: -1 });
 
 // 🔥 analytics grouping
 eventSchema.index({ siteId: 1, type: 1, timestamp: -1 });
+eventSchema.index({ siteId: 1, type: 1, time: -1 });
 
 //  session tracking
 eventSchema.index({ siteId: 1, sessionId: 1 });

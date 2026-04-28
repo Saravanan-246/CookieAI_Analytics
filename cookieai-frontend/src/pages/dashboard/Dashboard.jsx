@@ -131,14 +131,51 @@ export default function Dashboard() {
               </p>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 text-sm">
+            <div className="grid grid-cols-3 gap-3 text-sm mb-6">
               <Stat label="Visitors" value={data?.totalPageViews} />
               <Stat label="Views" value={data?.totalPageViews} />
               <Stat label="Active" value={data?.activeUsers} />
             </div>
+
+            {/* 🔥 NEW: LAST ACTIVITY */}
+            {data?.lastEvent && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-2">
+                  Last Activity
+                </p>
+                <div className="flex items-center justify-between bg-blue-50/50 border border-blue-100 rounded-xl p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">
+                        {data.lastEvent.path}
+                      </p>
+                      <p className="text-[10px] text-gray-500">
+                        {data.lastEvent.device} • {data.lastEvent.country} • Just now
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-blue-500 text-xs font-medium animate-pulse">
+                    Live update
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
-
       </div>
 
       {/* ===== HOW IT WORKS ===== */}

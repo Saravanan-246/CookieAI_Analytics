@@ -28,9 +28,21 @@ export const useAnalytics = (siteId) => {
     socketService.connect();
     socketService.join(validSiteId);
 
-    const handleUpdate = () => {
-      queryClient.invalidateQueries({
-        queryKey: ["analytics", validSiteId],
+    const handleUpdate = (newData) => {
+      console.log("⚡ Real-time update received:", newData);
+      
+      queryClient.setQueryData(["analytics", validSiteId], (oldData) => {
+        if (!oldData) return newData;
+        
+        // Merge or replace data
+        return {
+          ...oldData,
+          ...newData,
+          // 🔥 ensure charts also update if they are in the payload
+          traffic: newData.traffic || oldData.traffic,
+          topPages: newData.topPages || oldData.topPages,
+          topCountries: newData.topCountries || oldData.topCountries,
+        };
       });
     };
 
@@ -42,30 +54,7 @@ export const useAnalytics = (siteId) => {
     };
   }, [validSiteId, queryClient]);
 
-  /* ================= SMART POLLING (FIXED) ================= */
-  useEffect(() => {
-    if (!validSiteId) return;
-
-    const hasData =
-      (query.data?.totalPageViews > 0) ||   // ✅ FIXED
-      (query.data?.activeUsers > 0) ||
-      (query.data?.traffic?.length > 0);
-
-    // 🔥 stop polling if data exists
-    if (hasData) return;
-
-    const interval = setInterval(() => {
-      query.refetch();
-    }, 5000); // 🔥 FIXED (was 3000)
-
-    return () => clearInterval(interval);
-  }, [
-    validSiteId,
-    query.data?.totalPageViews,
-    query.data?.activeUsers,
-    query.data?.traffic,
-    query.refetch,
-  ]);
+  /* ================= REMOVED POLLING ================= */
 
   return query;
 };

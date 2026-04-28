@@ -5,9 +5,23 @@
 
     console.log("🚀 CookieAI Tracker Loaded");
 
+    /* ================= DEVICE DETECTION ================= */
+ const getDevice = () => {
+  const ua = navigator.userAgent;
+
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+  const isTablet = /iPad/i.test(ua);
+
+  if (isTablet) return "Tablet";
+  if (isMobile) return "Mobile";
+
+  return "Desktop";
+};
     /* ================= CONFIGURATION ================= */
     const scriptTag = document.querySelector("script[data-site-id]");
     const siteId = scriptTag?.getAttribute("data-site-id");
+    const USER_AGENT = navigator.userAgent;
+    const DEVICE_TYPE = getDevice();
 
     if (!siteId) {
       console.error("❌ CookieAI: data-site-id attribute missing");
@@ -26,34 +40,23 @@
 
     /* ================= SESSION MANAGEMENT ================= */
     const SESSION_KEY = "cookie_session_" + siteId;
-    const SESSION_TIME = "cookie_session_time_" + siteId;
-    const SESSION_START_KEY = "cookie_session_start_" + siteId;
-    const SESSION_DURATION = 30 * 60 * 1000; // 30 minutes
+    const SESSION_HAS_STARTED = "cookie_session_started_" + siteId;
+    
+    let sessionId = sessionStorage.getItem(SESSION_KEY);
+    let isNewSession = false;
 
-    let sessionId = localStorage.getItem(SESSION_KEY);
-    let lastTime = parseInt(localStorage.getItem(SESSION_TIME) || "0");
-    let sessionStartTime = parseInt(localStorage.getItem(SESSION_START_KEY) || "0");
-    const now = Date.now();
-
-    // Check if session expired
-    if (!sessionId || now - lastTime > SESSION_DURATION) {
+    if (!sessionId) {
       sessionId = crypto.randomUUID();
-      sessionStartTime = now;
-      localStorage.setItem(SESSION_KEY, sessionId);
-      localStorage.setItem(SESSION_TIME, now);
-      localStorage.setItem(SESSION_START_KEY, now);
-      console.log("🆕 NEW SESSION:", sessionId);
-    } else {
-      localStorage.setItem(SESSION_TIME, now);
+      isNewSession = true;
+      sessionStorage.setItem(SESSION_KEY, sessionId);
+      console.log("🆕 NEW SESSION (Tab):", sessionId);
     }
-
-
 
     /* ================= TRACKING STATE ================= */
     let isTrackingEnabled = true;
     let hasActivated = false;
     let heartbeatInterval = null;
-    let sessionStartTimeRecorded = sessionStartTime;
+    let sessionStartTimeRecorded = Date.now();
 
     /* ================= EVENT QUEUE SYSTEM ================= */
     const eventQueue = [];
@@ -106,6 +109,17 @@
     // Flush queue periodically as a fallback
     setInterval(flushQueue, 10000);
 
+    /* ================= TIME MANAGEMENT ================= */
+    let lastEventTime = 0;
+    const getUniqueTime = () => {
+      let now = Date.now();
+      if (now <= lastEventTime) {
+        now = lastEventTime + 1;
+      }
+      lastEventTime = now;
+      return new Date(now).toISOString();
+    };
+
     /* ================= BASE PAYLOAD ================= */
     const environment = (location.hostname === "localhost" || /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) 
       ? "preview" 
@@ -115,8 +129,8 @@
       siteId,
       sessionId,
       environment,
-      userAgent: navigator.userAgent,
-      device: navigator.userAgent,
+      userAgent: USER_AGENT,
+      device: DEVICE_TYPE,
       language: navigator.language,
       screen: { w: screen.width, h: screen.height },
     };
@@ -125,7 +139,7 @@
     const buildEvent = (eventType) => ({
       ...basePayload,
       eventType,
-      time: new Date().toISOString(),
+      time: getUniqueTime(),
       url: location.href,
       path: location.pathname,
       title: document.title,
@@ -134,40 +148,55 @@
     });
 
     /* ================= SEND EVENT (QUEUED) ================= */
-    const sendEvent = (eventType) => {
+    const sendEvent = async (eventType, extra = {}) => {
       if (!isTrackingEnabled) return;
 
-      const event = buildEvent(eventType);
-      eventQueue.push(event);
+      const event = { ...buildEvent(eventType), ...extra };
 
-      // Only flush immediately for page views to ensure they are captured before navigation
-      if (eventType === "page_view") {
-        flushQueue();
+      try {
+        // 🔥 Instant delivery for critical events
+        if (["page_view", "session_start", "session_end"].includes(eventType)) {
+          await fetch(TRACK_API, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(event),
+          });
+          console.log(`🔥 Instant ${eventType} sent:`, event.path);
+          return;
+        }
+
+        // other events → queue
+        eventQueue.push(event);
+      } catch (err) {
+        console.error(`❌ sendEvent error (${eventType}):`, err);
       }
-
-      console.log("📡 Queued:", eventType, event.path);
     };
-
-    /* ================= ACTIVATION (handled inline in flushQueue) ================= */
 
     /* ================= PAGE VIEW TRACKING ================= */
     let lastPath = "";
+    let pageStartTime = Date.now();
 
-    const trackPageView = () => {
-      if (location.pathname === lastPath) return;
-      lastPath = location.pathname;
+    const trackPageView = async () => {
+      const currentPath = location.pathname;
+      if (currentPath === lastPath) return;
 
-      pageStartTime = Date.now(); // Reset page time on new page view
+      lastPath = currentPath;
+      pageStartTime = Date.now();
 
-      console.log("📄 Page View:", lastPath);
-      sendEvent("page_view");
-      startPageTimeTracking(); // Start page time tracking
+      console.log("📄 Page View Detected:", lastPath);
+      await sendEvent("page_view");
+      
+      startPageTimeTracking();
     };
 
     /* ================= SESSION TRACKING ================= */
     const trackSessionStart = () => {
+      const hasStarted = sessionStorage.getItem(SESSION_HAS_STARTED);
+      if (hasStarted && !isNewSession) return;
+
       console.log("🧠 Session Start:", sessionId);
       sendEvent("session_start");
+      sessionStorage.setItem(SESSION_HAS_STARTED, "true");
     };
 
     let ended = false;
@@ -175,13 +204,12 @@
       if (ended) return;
       ended = true;
 
-      const duration = Date.now() - sessionStartTimeRecorded;
-      console.log("🧠 Session End:", sessionId, "Duration:", Math.round(duration / 1000), "s");
+      const duration = Math.round((Date.now() - sessionStartTimeRecorded) / 1000);
+      console.log("🧠 Session End:", sessionId, "Duration:", duration, "s");
       
-      // Use sendBeacon for reliable delivery on page unload
       const event = {
         ...buildEvent("session_end"),
-        duration: Math.round(duration / 1000),
+        duration: duration,
       };
 
       const blob = new Blob([JSON.stringify(event)], { type: "application/json" });
@@ -189,16 +217,13 @@
     };
 
     /* ================= PAGE TIME TRACKING ================= */
-    let pageStartTime = Date.now();
     let pageTimeInterval = null;
 
     const trackPageTime = () => {
       const duration = Math.round((Date.now() - pageStartTime) / 1000);
       if (duration > 0) {
         console.log("⏱️ Page Time:", location.pathname, duration, "s");
-        const event = buildEvent("page_time");
-        event.duration = duration;
-        eventQueue.push(event);
+        sendEvent("page_time", { duration });
         pageStartTime = Date.now(); // Reset for next interval
       }
     };
@@ -220,32 +245,36 @@
     };
 
     /* ================= SPA ROUTE TRACKING ================= */
+    const handleRouteChange = () => {
+      // Small delay to ensure title and URL are updated in the DOM
+      setTimeout(trackPageView, 50);
+    };
+
     const wrapHistory = (type) => {
       const original = history[type];
-
       return function () {
-        original.apply(this, arguments);
-        setTimeout(trackPageView, 200);
+        const res = original.apply(this, arguments);
+        handleRouteChange();
+        return res;
       };
     };
 
     history.pushState = wrapHistory("pushState");
     history.replaceState = wrapHistory("replaceState");
 
-    window.addEventListener("popstate", () => {
-      setTimeout(trackPageView, 200);
-    });
+    window.addEventListener("popstate", handleRouteChange);
 
     /* ================= VISIBILITY TRACKING ================= */
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
-        // Track page view when tab becomes visible
         trackPageView();
+      } else {
+        trackPageTime(); // Send time spent before tab hidden
       }
     });
 
     /* ================= PAGE LIFECYCLE ================= */
-    // Initial page load
+    // Initial load
     trackSessionStart();
     trackPageView();
     startHeartbeat();
@@ -254,9 +283,9 @@
     window.addEventListener("pagehide", trackSessionEnd);
     window.addEventListener("beforeunload", trackSessionEnd);
 
-    console.log(" CookieAI Tracker initialized successfully");
+    console.log("✅ CookieAI Tracker initialized successfully");
 
   } catch (err) {
-    console.error(" CookieAI Tracker Error:", err);
+    console.error("❌ CookieAI Tracker Error:", err);
   }
 })();

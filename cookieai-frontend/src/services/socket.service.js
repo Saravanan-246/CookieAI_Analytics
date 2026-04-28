@@ -12,18 +12,31 @@ export const socketService = {
   connect() {
     if (!socket) {
       socket = io(SOCKET_URL, {
-        transports: ["websocket"],
+        transports: ["websocket", "polling"], // Fallback to polling if websocket fails
+        withCredentials: true,
+        autoConnect: true,
         reconnection: true,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
+        timeout: 20000,
       });
 
       socket.on("connect", () => {
         console.log("🟢 Socket connected:", socket.id);
+        
+        // 🔥 Auto rejoin on reconnect
+        if (currentSite) {
+          console.log("📡 Auto-rejoining site:", currentSite);
+          socket.emit("join-site", currentSite);
+        }
       });
 
-      socket.on("disconnect", () => {
-        console.log("🔴 Socket disconnected");
+      socket.on("disconnect", (reason) => {
+        console.log("🔴 Socket disconnected:", reason);
+      });
+
+      socket.on("connect_error", (err) => {
+        console.error("⚠️ Socket connection error:", err.message);
       });
     }
 

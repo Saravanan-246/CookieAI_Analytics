@@ -34,246 +34,282 @@ const formatMap = (arr = []) => {
   return obj;
 };
 
-const calculateSummary = async (siteId, range = "7d", environment = "all") => {
-  // Validate site
-  const site = await validateSiteExists(siteId);
-
-  // Always return empty structure if no site
-  if (!site) {
-    return {
-      totalVisitors: 0,
-      visitorGrowth: 0,
-      totalPageViews: 0,
-      viewGrowth: 0,
-      totalSessions: 0,
-      activeUsers: 0,
-      avgSessionDuration: 0,
-      bounceRate: 0,
-      avgPagesPerSession: 0,
-      devices: [],
-      traffic: [],
-      topPages: [],
-      topCountries: [],
-      os: []
-    };
-  }
-
-  // 🔥 ALWAYS USE REAL MONGO _id
-  const realSiteId = site._id;
-
-  /* ---------- FILTERS ---------- */
-  const rangeMap = {
-    "24h": 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
-    "30d": 30 * 24 * 60 * 60 * 1000,
-  };
-
-  const duration = rangeMap[range] || rangeMap["7d"];
-  const now = Date.now();
-
-  const currentFilter = {
-    siteId: realSiteId,
-    timestamp: { $gte: new Date(now - duration) },
-    ...(environment !== "all" && { environment })
-  };
-
-  const sessionFilter = {
-    siteId: realSiteId,
-    lastSeen: { $gte: new Date(now - duration) },
-    ...(environment !== "all" && { environment })
-  };
-
-  const prevFilter = {
-    siteId: realSiteId,
-    timestamp: {
-      $gte: new Date(now - 2 * duration),
-      $lt: new Date(now - duration)
-    },
-    ...(environment !== "all" && { environment })
-  };
-
-  /* ---------- GROWTH ---------- */
-  const [currVisitors, prevVisitors, currViews, prevViews] = await Promise.all([
-    Session.countDocuments(sessionFilter),
-    Session.countDocuments({
-      siteId: realSiteId,
-      lastSeen: {
-        $gte: new Date(now - 2 * duration),
-        $lt: new Date(now - duration)
-      },
-      ...(environment !== "all" && { environment })
-    }),
-    Event.countDocuments({ ...currentFilter, type: "page_view" }),
-    Event.countDocuments({ ...prevFilter, type: "page_view" })
-  ]);
-
-  const calcGrowth = (curr, prev) => {
-    if (!prev) return 0;
-    return Math.round(((curr - prev) / prev) * 100);
-  };
-
-  const visitorGrowth = calcGrowth(currVisitors, prevVisitors);
-  const viewGrowth = calcGrowth(currViews, prevViews);
-
-  /* ---------- AGGREGATIONS ---------- */
-  const [
-    activeUsers,
-    devices,
-    traffic,
-    sessionsAgg,
-    topPages,
-    topCountries,
-    os
-  ] = await Promise.all([
-    Session.countDocuments({
-      siteId: realSiteId,
-      isActive: true,
-      lastSeen: { $gte: new Date(Date.now() - 5 * 60 * 1000) },
-      ...(environment !== "all" && { environment })
-    }),
-
-    Event.aggregate([
-      { $match: { ...currentFilter, type: "page_view" } },
-      { $group: { _id: "$device", count: { $sum: 1 } } }
-    ]),
-
-    Event.aggregate([
-      { $match: { ...currentFilter, type: "page_view" } },
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } },
-          visits: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]),
-
-    Session.aggregate([
-      { $match: sessionFilter },
-      {
-        $group: {
-          _id: null,
-          totalDuration: { $sum: { $subtract: ["$lastSeen", "$createdAt"] } },
-          totalPageCount: { $sum: "$pageCount" },
-          count: { $sum: 1 },
-          bounces: {
-            $sum: { $cond: [{ $eq: ["$pageCount", 1] }, 1, 0] }
-          }
-        }
-      }
-    ]),
-
-    Event.aggregate([
-      {
-        $match: {
-          ...currentFilter,
-          type: "page_view",
-          path: { $ne: null, $ne: "" }
-        }
-      },
-      {
-        $project: {
-          cleanPath: {
-            $arrayElemAt: [{ $split: ["$path", "?"] }, 0]
-          }
-        }
-      },
-      {
-        $group: {
-          _id: "$cleanPath",
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]),
-
-    Event.aggregate([
-      { $match: { ...currentFilter, type: "page_view" } },
-      { $group: { _id: "$country", count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]),
-
-    Event.aggregate([
-      { $match: { ...currentFilter, type: "page_view" } },
-      {
-        $project: {
-          os: {
-            $cond: [
-              { $regexMatch: { input: "$os", regex: /Windows/i } },
-              "Windows",
-              {
-                $cond: [
-                  { $regexMatch: { input: "$os", regex: /Mac|OS X/i } },
-                  "macOS",
-                  {
-                    $cond: [
-                      { $regexMatch: { input: "$os", regex: /Android/i } },
-                      "Android",
-                      {
-                        $cond: [
-                          { $regexMatch: { input: "$os", regex: /iOS|iPhone|iPad/i } },
-                          "iOS",
-                          { $ifNull: ["$os", "Unknown"] }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      },
-      {
-        $group: {
-          _id: "$os",
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ])
-  ]);
-
-  const stats = sessionsAgg[0] || {
-    totalDuration: 0,
-    totalPageCount: 0,
-    count: 0,
-    bounces: 0
-  };
-
-  const totalSessions = stats.count;
-  const avgSessionDuration = totalSessions
-    ? stats.totalDuration / totalSessions / 1000
-    : 0;
-
-  const bounceRate = totalSessions
-    ? Math.round((stats.bounces / totalSessions) * 100)
-    : 0;
-
-  const avgPagesPerSession = totalSessions
-    ? parseFloat((stats.totalPageCount / totalSessions).toFixed(1))
-    : 0;
-
+const buildTimeFilter = (gteDate) => {
+  const dateObj = gteDate instanceof Date ? gteDate : new Date(gteDate);
   return {
-    totalVisitors: currVisitors,
-    visitorGrowth,
-    totalPageViews: currViews,
-    viewGrowth,
-    totalSessions,
-    activeUsers,
-    avgSessionDuration,
-    bounceRate,
-    avgPagesPerSession,
-    devices,
-    traffic,
-    topPages,
-    topCountries,
-    os
+    $or: [{ timestamp: { $gte: dateObj } }, { time: { $gte: dateObj } }],
   };
 };
+
+const buildTimeRangeFilter = (gteDate, ltDate) => {
+  const dGte = gteDate instanceof Date ? gteDate : new Date(gteDate);
+  const dLt = ltDate instanceof Date ? ltDate : new Date(ltDate);
+
+  return {
+    $or: [
+      { timestamp: { $gte: dGte, $lt: dLt } },
+      { time: { $gte: dGte, $lt: dLt } },
+    ],
+  };
+};
+
+const calculateSummary = async (siteId, range = "7d", environment = "all") => {
+  try {
+    const site = await validateSiteExists(siteId);
+    if (!site) return emptySummary();
+
+    /* ---------- TIME ---------- */
+    const rangeMap = {
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "30d": 30 * 24 * 60 * 60 * 1000,
+    };
+
+    const duration = rangeMap[range] || rangeMap["7d"];
+    const now = Date.now();
+
+    const envFilter =
+      environment && environment !== "all" ? { environment } : {};
+
+    const siteIdStr = site.siteId || String(site._id);
+
+    /* ---------- FILTERS ---------- */
+    const currentFilter = {
+      siteId: siteIdStr,
+      ...buildTimeFilter(new Date(now - duration)),
+      ...envFilter,
+    };
+
+    const prevEventFilter = {
+      siteId: siteIdStr,
+      ...buildTimeRangeFilter(
+        new Date(now - 2 * duration),
+        new Date(now - duration)
+      ),
+      ...envFilter,
+    };
+
+    const sessionFilter = {
+      siteId: siteIdStr,
+      lastSeen: { $gte: new Date(now - duration) },
+      ...envFilter,
+    };
+
+    const prevSessionFilter = {
+      siteId: siteIdStr,
+      lastSeen: {
+        $gte: new Date(now - 2 * duration),
+        $lt: new Date(now - duration),
+      },
+      ...envFilter,
+    };
+
+    console.log("🔍 FILTER:", JSON.stringify(currentFilter));
+
+    /* ---------- ONLY PAGE VIEW ---------- */
+    const eventMatchFilter = {
+      ...currentFilter,
+      type: "page_view", // 🔥 KEY FIX
+    };
+
+    /* ---------- GROWTH ---------- */
+    const [currVisitors, prevVisitors, currViews, prevViews] =
+      await Promise.all([
+        Session.countDocuments(sessionFilter),
+        Session.countDocuments(prevSessionFilter),
+
+        Event.countDocuments(eventMatchFilter),
+
+        Event.countDocuments({
+          ...prevEventFilter,
+          type: "page_view",
+        }),
+      ]);
+
+    const calcGrowth = (curr, prev) =>
+      prev ? Math.round(((curr - prev) / prev) * 100) : 0;
+
+    /* ---------- AGGREGATIONS ---------- */
+ const [
+  activeUsers,
+  devices,
+  traffic,
+  sessionsAgg,
+  topPages,
+  topCountries,
+  os,
+] = await Promise.all([
+
+  /* ---------- ACTIVE USERS ---------- */
+  Session.countDocuments({
+    siteId: siteIdStr,
+    isActive: true,
+    lastSeen: { $gte: new Date(Date.now() - 5 * 60 * 1000) },
+    ...envFilter,
+  }),
+
+  /* ---------- DEVICES (SESSION BASED) ---------- */
+  Session.aggregate([
+    { $match: sessionFilter },
+    {
+      $group: {
+        _id: "$device",
+        count: { $sum: 1 },
+      },
+    },
+  ]),
+
+  /* ---------- TRAFFIC (FIXED 🔥) ---------- */
+  Event.aggregate([
+    { $match: eventMatchFilter },
+    {
+      $group: {
+        _id: {
+          $dateToString: {
+            format: "%H:%M", // 🔥 IMPORTANT FIX
+            date: {
+              $ifNull: ["$timestamp", { $toDate: "$time" }],
+            },
+          },
+        },
+        visits: { $sum: 1 },
+      },
+    },
+    { $sort: { _id: 1 } },
+  ]),
+
+  /* ---------- SESSION STATS ---------- */
+  Session.aggregate([
+    { $match: sessionFilter },
+    {
+      $group: {
+        _id: null,
+        totalDuration: {
+          $sum: {
+            $subtract: ["$lastSeen", "$createdAt"],
+          },
+        },
+        totalPageCount: { $sum: "$pageCount" },
+        count: { $sum: 1 },
+        bounces: {
+          $sum: {
+            $cond: [{ $eq: ["$pageCount", 1] }, 1, 0],
+          },
+        },
+      },
+    },
+  ]),
+
+  /* ---------- TOP PAGES ---------- */
+  Event.aggregate([
+    {
+      $match: {
+        ...eventMatchFilter,
+        path: { $exists: true, $ne: "" },
+      },
+    },
+    {
+      $project: {
+        cleanPath: {
+          $arrayElemAt: [{ $split: ["$path", "?"] }, 0],
+        },
+      },
+    },
+    {
+      $group: {
+        _id: "$cleanPath",
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { count: -1 } },
+    { $limit: 10 },
+  ]),
+
+  /* ---------- COUNTRIES (FIXED 🔥 SESSION BASED) ---------- */
+  Session.aggregate([
+    { $match: sessionFilter },
+    {
+      $group: {
+        _id: "$country",
+        count: { $sum: 1 },
+      },
+    },
+    { $sort: { count: -1 } },
+    { $limit: 10 },
+  ]),
+
+  /* ---------- OS (SESSION BASED) ---------- */
+  Session.aggregate([
+    { $match: sessionFilter },
+    {
+      $group: {
+        _id: "$os",
+        count: { $sum: 1 },
+      },
+    },
+  ]),
+]);
+
+/* ---------- SAFE DEFAULT ---------- */
+const stats = sessionsAgg[0] || {
+  totalDuration: 0,
+  totalPageCount: 0,
+  count: 0,
+  bounces: 0,
+};
+
+const totalSessions = stats.count;
+    return {
+      totalVisitors: currVisitors,
+      visitorGrowth: calcGrowth(currVisitors, prevVisitors),
+
+      totalPageViews: currViews,
+      viewGrowth: calcGrowth(currViews, prevViews),
+
+      totalSessions,
+      activeUsers,
+
+      avgSessionDuration: totalSessions
+        ? stats.totalDuration / totalSessions / 1000
+        : 0,
+
+      bounceRate: totalSessions
+        ? Math.round((stats.bounces / totalSessions) * 100)
+        : 0,
+
+      avgPagesPerSession: totalSessions
+        ? Number((stats.totalPageCount / totalSessions).toFixed(1))
+        : 0,
+
+      devices,
+      traffic,
+      topPages,
+      topCountries,
+      os,
+    };
+  } catch (error) {
+    console.error("SUMMARY ERROR:", error);
+    return emptySummary();
+  }
+};
+
+/* ---------- EMPTY ---------- */
+const emptySummary = () => ({
+  totalVisitors: 0,
+  visitorGrowth: 0,
+  totalPageViews: 0,
+  viewGrowth: 0,
+  totalSessions: 0,
+  activeUsers: 0,
+  avgSessionDuration: 0,
+  bounceRate: 0,
+  avgPagesPerSession: 0,
+  devices: [],
+  traffic: [],
+  topPages: [],
+  topCountries: [],
+  os: [],
+});
 
 exports.calculateSummary = calculateSummary;
 
@@ -332,10 +368,13 @@ exports.clearAnalytics = async (req, res) => {
       return res.status(400).json({ success: false, message: "siteId required" });
     }
 
+    // 🔥 Ensure siteId is a string for matching stored data
+    const filterSiteId = String(siteId);
+
     // Delete all analytics data for the site
     await Promise.all([
-      Event.deleteMany({ siteId }),
-      Session.deleteMany({ siteId }),
+      Event.deleteMany({ siteId: filterSiteId }),
+      Session.deleteMany({ siteId: filterSiteId }),
     ]);
 
     return res.json({
