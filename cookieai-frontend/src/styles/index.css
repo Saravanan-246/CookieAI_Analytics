@@ -238,3 +238,43 @@ body {
   0%,100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* ===== GLOBAL LOADER ===== */
+.loader-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+}
+
+.loader-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 🔥 MODERN SPINNER */
+.loader {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #6366f1;
+  animation: spin 0.8s linear infinite;
+}
+
+/* TEXT */
+.loader-text {
+  font-size: 14px;
+  color: #475569;
+  font-weight: 500;
+}
+
+/* ANIMATION */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
