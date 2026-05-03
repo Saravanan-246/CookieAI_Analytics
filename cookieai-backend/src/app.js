@@ -80,6 +80,25 @@ app.get("/tracker.js", (req, res) => {
 });
 
 /* =======================================================
+   📡 PUBLIC SITE STATUS (FOR TRACKER - NO AUTH)
+======================================================= */
+const Site = require("./models/site.model");
+app.get("/api/site/status", rateLimiter, async (req, res) => {
+  try {
+    const { siteId } = req.query;
+    if (!siteId) return res.json({ active: false });
+
+    const site = await Site.findOne({ siteId, isDeleted: { $ne: true } })
+      .select("siteId isActive")
+      .lean();
+
+    return res.json({ active: Boolean(site && site.isActive !== false) });
+  } catch {
+    return res.json({ active: false });
+  }
+});
+
+/* =======================================================
    🚦 RATE LIMIT (IMPORTANT)
 ======================================================= */
 app.use("/api/track", rateLimiter);

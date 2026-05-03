@@ -35,6 +35,31 @@ const canEmit = (siteId) => {
   return true;
 };
 
+/* ---------- IN-MEMORY ACTIVE USER STORE ---------- */
+const activeUsersMap = new Map(); // siteId -> Set(sessionId)
+
+const updateActiveUser = (siteId, sessionId, isNowActive) => {
+  if (!activeUsersMap.has(siteId)) {
+    activeUsersMap.set(siteId, new Set());
+  }
+
+  if (isNowActive) {
+    activeUsersMap.get(siteId).add(sessionId);
+    // Instant emit (no wait)
+    emitAnalyticsUpdate(siteId, {
+      activeUsers: activeUsersMap.get(siteId).size || 0
+    });
+  } else {
+    // Delay slightly to prevent flicker on rapid refresh
+    setTimeout(() => {
+      activeUsersMap.get(siteId)?.delete(sessionId);
+      emitAnalyticsUpdate(siteId, {
+        activeUsers: activeUsersMap.get(siteId)?.size || 0
+      });
+    }, 3000);
+  }
+};
+
 /* ================= INTERNAL PROCESSOR ================= */
 const processEvent = async (data, reqInfo) => {
   try {
@@ -51,9 +76,10 @@ const processEvent = async (data, reqInfo) => {
     if (ACTIVITY_TYPES.includes(finalType)) {
       if (!siteId) return;
 
-      let site = await Site.findOne({ siteId });
+      let site = await Site.findOne({ siteId, isDeleted: { $ne: true } });
       if (!site && mongoose.Types.ObjectId.isValid(siteId)) {
         site = await Site.findById(siteId);
+        if (site?.isDeleted) site = null;
       }
       if (!site) return;
 
@@ -62,6 +88,9 @@ const processEvent = async (data, reqInfo) => {
       const eventTime = timestamp ? new Date(timestamp) : new Date();
 
       const isNowActive = finalType === "user_active" || finalType === "user_visible";
+
+      // INSTANT REAL-TIME UPDATE (NO DELAY)
+      updateActiveUser(realSiteId, sessionId, isNowActive);
 
       // Update session active state + lastSeen (lightweight, no Event/Visit created)
       await Session.updateOne(
@@ -74,17 +103,7 @@ const processEvent = async (data, reqInfo) => {
         }
       ).catch(() => {});
 
-      console.log(`${isNowActive ? "\u2705" : "\ud83d\udca4"} ${finalType} | session: ${sessionId.slice(0, 8)}`);
-
-      // Emit updated activeUsers count on state change
-      if (canEmit(realSiteId)) {
-        const activeUsers = await Session.countDocuments({
-          siteId: realSiteId,
-          isActive: true,
-          lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
-        });
-        emitAnalyticsUpdate(realSiteId, { stats: { activeUsers } });
-      }
+      console.log(`${isNowActive ? "✅" : "💤"} ${finalType} | session: ${sessionId.slice(0, 8)}`);
 
       return; // Done — no heavy processing needed
     }
@@ -143,9 +162,10 @@ const processEvent = async (data, reqInfo) => {
     if (!siteId) return;
 
     /* ---------- SITE RESOLUTION ---------- */
-    let site = await Site.findOne({ siteId });
+    let site = await Site.findOne({ siteId, isDeleted: { $ne: true } });
     if (!site && mongoose.Types.ObjectId.isValid(siteId)) {
       site = await Site.findById(siteId);
+      if (site?.isDeleted) site = null;
     }
 
     if (!site) return;
@@ -163,11 +183,16 @@ const processEvent = async (data, reqInfo) => {
 
     const uaStr = clientUa || headers["user-agent"] || "";
 
-    const device = clientDevice || (
+    const rawDevice = clientDevice || (
       /Mobi|Android/i.test(uaStr) ? "Mobile" : 
       /Tablet|iPad/i.test(uaStr) ? "Tablet" : 
       "Desktop"
     );
+
+    // Backend safety: clamp to valid enum values
+    const device = ["Desktop", "Mobile", "Tablet"].includes(rawDevice)
+      ? rawDevice
+      : "Desktop";
 
     const browser = clientBrowser || (() => {
       if (/edg/i.test(uaStr)) return "Edge";
@@ -185,6 +210,9 @@ const processEvent = async (data, reqInfo) => {
       if (/iphone|ipad/i.test(uaStr)) return "iOS";
       return "Other";
     })();
+
+    // MARK INSTANTLY ACTIVE FOR MAIN EVENTS
+    updateActiveUser(realSiteId, sessionId, true);
 
     /* ---------- 3. CLEAN LOGGING (FIRE EVENT) ---------- */
     console.log(`🔥 EVENT: ${finalType} SITE: ${realSiteId}`);
@@ -222,113 +250,83 @@ const processEvent = async (data, reqInfo) => {
 
     // EVERY page_view must create a Visit record
     if (isPageView) {
-      await Visit.create({
-        siteId: realSiteId, sessionId, path: finalPath,
-        url: url || "", title: title || "", referrer: referrer || "",
-        device, browser, os, country, countryCode, time: eventTime
-      });
+  await Visit.create({
+    siteId: realSiteId,
+    sessionId,
+    path: finalPath,
+    url: url || "",
+    title: title || "",
+    referrer: referrer || "",
+    device,
+    browser,
+    os,
+    country,
+    countryCode,
+    time: eventTime
+  });
 
-      /* ---------- 3. CLEAN LOGGING (VISIT) ---------- */
-      console.log(`📊 VISIT: ${finalPath} ${device} ${country}`);
+  console.log(`📊 VISIT: ${finalPath} ${device} ${country}`);
 
-      /* ---------- 5. REALTIME EMIT (ONLY ON PAGE VIEW) ---------- */
-      if (canEmit(realSiteId)) {
-        const activeUsers = await Session.countDocuments({
-          siteId: realSiteId,
-          isActive: true,
-          lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
-        });
+  if (canEmit(realSiteId)) {
+    const activeUsers = activeUsersMap.has(realSiteId) ? activeUsersMap.get(realSiteId).size : 0;
+    const pageViews = await Visit.countDocuments({ siteId: realSiteId });
 
-        const pageViews = await Visit.countDocuments({ siteId: realSiteId });
+    const [devices, browsers, countries, pages] = await Promise.all([
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $group: { _id: "$device", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, value: { $size: "$sessions" } } },
+        { $sort: { value: -1 } }
+      ]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $group: { _id: "$browser", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, value: { $size: "$sessions" } } },
+        { $sort: { value: -1 } }
+      ]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        {
+          $group: {
+            _id: "$country",
+            code: { $first: "$countryCode" },
+            sessions: { $addToSet: "$sessionId" }
+          }
+        },
+        { $project: { _id: 1, code: 1, value: { $size: "$sessions" } } },
+        { $sort: { value: -1 } }
+      ]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        {
+          $group: {
+            _id: "$path",
+            pageViews: { $sum: 1 },
+            visitors: { $addToSet: "$sessionId" }
+          }
+        },
+        {
+          $project: {
+            path: "$_id",
+            pageViews: 1,
+            visitors: { $size: "$visitors" }
+          }
+        },
+        { $sort: { pageViews: -1 } },
+        { $limit: 10 }
+      ])
+    ]);
 
-        const [devices, browsers, countries, pages] = await Promise.all([
-          Visit.aggregate([
-            { $match: { siteId: realSiteId } },
-            { $sort: { time: -1 } },
-            {
-              $group: {
-                _id: "$sessionId",
-                device: { $first: "$device" }
-              }
-            },
-            {
-              $group: {
-                _id: "$device",
-                value: { $sum: 1 }
-              }
-            },
-            { $sort: { value: -1 } }
-          ]),
-          Visit.aggregate([
-            { $match: { siteId: realSiteId } },
-            { $sort: { time: -1 } },
-            {
-              $group: {
-                _id: "$sessionId",
-                browser: { $first: "$browser" }
-              }
-            },
-            {
-              $group: {
-                _id: "$browser",
-                value: { $sum: 1 }
-              }
-            },
-            { $sort: { value: -1 } }
-          ]),
-          Visit.aggregate([
-            { $match: { siteId: realSiteId } },
-            { $sort: { time: -1 } },
-            {
-              $group: {
-                _id: "$sessionId",
-                country: { $first: "$country" },
-                code: { $first: "$countryCode" }
-              }
-            },
-            {
-              $group: {
-                _id: "$country",
-                code: { $first: "$code" },
-                value: { $sum: 1 }
-              }
-            },
-            { $sort: { value: -1 } }
-          ]),
-          Visit.aggregate([
-            { $match: { siteId: realSiteId } },
-            {
-              $group: {
-                _id: "$path",
-                visitorsSet: { $addToSet: "$sessionId" },
-                pageViews: { $sum: 1 }
-              }
-            },
-            {
-              $project: {
-                _id: 1,
-                visitors: { $size: "$visitorsSet" },
-                pageViews: 1
-              }
-            },
-            { $sort: { pageViews: -1 } },
-            { $limit: 10 }
-          ])
-        ]);
-
-        console.log("📊 DEVICES:", devices);
-        console.log("🌍 COUNTRIES:", countries);
-
-        emitAnalyticsUpdate(realSiteId, {
-          activeUsers,
-          pageViews,
-          devices: devices.map(d => ({ name: d._id || "Unknown", value: d.value })),
-          browsers: browsers.map(b => ({ name: b._id || "Unknown", value: b.value })),
-          countries: countries.map(c => ({ name: c._id || "Unknown", code: c.code || "XX", value: c.value })),
-          pages: pages.map(p => ({ path: p._id || "/", visitors: p.visitors, pageViews: p.pageViews }))
-        });
-      }
-    }
+    emitAnalyticsUpdate(realSiteId, {
+      activeUsers,
+      pageViews,
+      devices: devices.map(d => ({ name: d._id || "Unknown", value: d.value })),
+      browsers: browsers.map(b => ({ name: b._id || "Unknown", value: b.value })),
+      countries: countries.map(c => ({ name: c._id || "Unknown", code: c.code || "XX", value: c.value })),
+      pages
+    });
+  }
+}
 
     /* ---------- SESSION UPDATE ---------- */
     await Session.updateOne(
@@ -403,6 +401,20 @@ exports.trackBatch = async (req, res) => {
     (async () => {
       for (const item of payload) {
         await processEvent(item, reqInfo);
+      }
+
+      try {
+        await Site.updateOne(
+          { siteId: payload[0].siteId },
+          {
+            $set: {
+              trackingInstalled: true,
+              lastEventAt: new Date()
+            }
+          }
+        );
+      } catch (e) {
+        console.error("Batch Site Update Error:", e);
       }
     })();
 

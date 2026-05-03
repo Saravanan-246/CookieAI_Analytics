@@ -123,16 +123,6 @@ export default function TopCountries({ countries = [], loading = false }) {
         })}
       </div>
 
-      {/* SCROLLBAR */}
-      <style jsx>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #e5e7eb;
-          border-radius: 20px;
-        }
-      `}</style>
     </div>
   );
 }

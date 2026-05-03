@@ -70,14 +70,6 @@ export default function EmptyState({
         </div>
       )}
 
-      {/* SHIMMER STYLE */}
-      <style jsx>{`
-        @keyframes shimmer {
-          100% {
-            transform: translateX(100%);
-          }
-        }
-      `}</style>
     </motion.div>
   );
 }

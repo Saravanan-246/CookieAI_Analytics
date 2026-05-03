@@ -29,6 +29,7 @@ import DashboardPreview from "../../components/ui/DashboardPreview";
 
 // INSTALL DETECTION KEY
 const INSTALL_KEY = "cookieai_script_copied";
+const HAS_DATA_KEY = "cookieai_has_data";
 
 /* ================= TYPES & CONSTANTS ================= */
 const EMPTY = {
@@ -38,15 +39,11 @@ const EMPTY = {
     activeUsers: 0,
     bounceRate: 0
   },
-  charts: {
-    traffic: [],
-    devices: [],
-    browsers: [],
-    countries: []
-  },
-  tables: {
-    pages: []
-  }
+  traffic: [],
+  devices: [],
+  browsers: [],
+  countries: [],
+  pages: []
 };
 
 const CHART_COLORS = ["#000000", "#111111", "#222222", "#333333", "#444444"];
@@ -134,86 +131,130 @@ export default function Analytics() {
   const [scriptCopied, setScriptCopied] = useState(() => {
     try { return localStorage.getItem(INSTALL_KEY) === "true"; } catch { return false; }
   });
+  const [chartData, setChartData] = useState([]);
+
+  const hasData = (
+    (data?.stats?.pageViews || 0) > 0 ||
+    (data?.stats?.sessions || 0) > 0 ||
+    (data?.pages?.length || 0) > 0
+  );
+
+  const liveHasData =
+    (data?.stats?.pageViews || 0) > 0 ||
+    (data?.stats?.sessions || 0) > 0;
+
+  useEffect(() => {
+    if (data?.traffic) {
+      setChartData([...data.traffic]);
+    }
+  }, [data?.traffic]);
 
   const refs = useRef({ fetching: false });
 
   /* ---------- DATA FETCH ---------- */
-  const fetchData = useCallback(async (isSilent = false) => {
-    if (!siteId || ["dashboard", "undefined", "null"].includes(siteId)) return;
-    if (!isSilent && !refs.current.initialLoaded) setLoading(true);
-    
-    try {
-      const [siteRes, summaryRes, chartsRes, setupRes] = await Promise.all([
-        siteService.getSiteById(siteId),
-        analyticsService.getSummary(siteId),
-        analyticsService.getCharts(siteId, range),
-        analyticsService.getSetupStatus(siteId)
-      ]);
+const fetchData = useCallback(async (isSilent = false) => {
+  if (!siteId || ["dashboard", "undefined", "null"].includes(siteId)) return;
 
-      setSite(siteRes);
-      setData({
-        stats: {
-          pageViews: summaryRes?.stats?.pageViews || summaryRes?.pageViews || 0,
-          sessions: summaryRes?.stats?.sessions || summaryRes?.sessions || 0,
-          activeUsers: summaryRes?.stats?.activeUsers || summaryRes?.activeUsers || 0,
-          bounceRate: summaryRes?.stats?.bounceRate || summaryRes?.bounceRate || 0,
-        },
-        charts: {
-          traffic: chartsRes?.traffic || [],
-          devices: chartsRes?.devices || [],
-          browsers: chartsRes?.browsers || [],
-          countries: chartsRes?.countries || [],
-        },
-        tables: {
-          pages: summaryRes?.tables?.pages || []
-        }
-      });
-      setSetup(setupRes);
-    } catch (err) {
-      console.error("Dashboard error:", err);
-    } finally {
-      refs.current.initialLoaded = true;
-      setLoading(false);
-    }
-  }, [siteId, range]);
+  if (!isSilent && !refs.current.initialLoaded) setLoading(true);
+  if (refs.current.fetching) return;
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  refs.current.fetching = true;
+
+  setData((prev) => ({
+    ...prev,
+    traffic: [],
+  }));
+
+  try {
+    const [siteRes, summaryRes, chartsRes, setupRes] = await Promise.all([
+      siteService.getSiteById(siteId),
+      analyticsService.getSummary(siteId, range),
+      analyticsService.getCharts(siteId, range),
+      analyticsService.getSetupStatus(siteId)
+    ]);
+
+    setSite(siteRes);
+
+    console.log("API SUMMARY:", summaryRes);
+    console.log("API CHARTS:", chartsRes);
+
+    setData({
+      stats: summaryRes?.stats || {},
+      traffic: chartsRes?.traffic || [],
+      devices: chartsRes?.devices || [],
+      browsers: chartsRes?.browsers || [],
+      countries: chartsRes?.countries || [],
+      pages: summaryRes?.tables?.pages || summaryRes?.pages || []
+    });
+
+    setSetup((prev) => ({
+      ...prev,
+      ...setupRes
+    }));
+
+  } catch (err) {
+    console.error("Dashboard error:", err);
+  } finally {
+    refs.current.fetching = false;
+    refs.current.initialLoaded = true;
+    setLoading(false);
+  }
+}, [siteId, range]);
+
+useEffect(() => {
+  if (!siteId || ["dashboard","undefined","null"].includes(siteId)) return;
+
+  fetchData();
+
+}, [siteId, range]);
 
   /* ---------- REALTIME ---------- */
   const joinedRef = useRef(null);
 
   useEffect(() => {
-    if (!siteId || siteId === "undefined") return;
-    
-    // ✅ JOIN ROOM ONLY ONCE (DEDUPED)
-    if (joinedRef.current !== siteId) {
-      socketService.connect();
-      socketService.join(siteId);
-      joinedRef.current = siteId;
-      console.log(`[Socket] 📡 joined ${siteId}`);
-    }
+    if (!siteId || joinedRef.current === siteId) return;
 
-    socketService.on("analytics:update", (incoming) => {
+    socketService.connect();
+    socketService.join(siteId, range);
+    joinedRef.current = siteId;
+
+    return () => socketService.leave(siteId);
+  }, [siteId]);
+
+  useEffect(() => {
+    if (!siteId) return;
+    socketService.leave(siteId);
+    socketService.join(siteId, range);
+  }, [range, siteId]);
+
+  useEffect(() => {
+    if (!siteId || siteId === "undefined") return;
+
+    const handler = (incoming) => {
+      if (!incoming || typeof incoming !== "object") return;
+
+      console.log("SOCKET:", incoming);
+
       setData(prev => ({
         ...prev,
         stats: {
           ...prev.stats,
-          ...(incoming.stats || {})
+          pageViews: incoming?.stats?.pageViews ?? prev.stats?.pageViews,
+          activeUsers: incoming?.stats?.activeUsers ?? prev.stats?.activeUsers,
+          sessions: incoming?.stats?.sessions ?? prev.stats?.sessions,
+          visitors: incoming?.stats?.visitors ?? prev.stats?.visitors
         },
-        charts: {
-          traffic: incoming.charts?.traffic || prev.charts.traffic,
-          devices: incoming.charts?.devices?.length ? incoming.charts.devices : prev.charts.devices,
-          browsers: incoming.charts?.browsers?.length ? incoming.charts.browsers : prev.charts.browsers,
-          countries: incoming.charts?.countries?.length ? incoming.charts.countries : prev.charts.countries
-        },
-        tables: {
-          ...prev.tables,
-          pages: incoming.charts?.pages?.length ? incoming.charts.pages : prev.tables.pages
-        }
+        traffic: incoming?.traffic?.length ? incoming.traffic : prev.traffic ?? [],
+        devices: incoming?.devices?.length ? incoming.devices : prev.devices ?? [],
+        browsers: incoming?.browsers?.length ? incoming.browsers : prev.browsers ?? [],
+        countries: incoming?.countries?.length ? incoming.countries : prev.countries ?? [],
+        pages: incoming?.pages?.length ? incoming.pages : prev.pages ?? []
       }));
-    });
+
+      // Real data triggers a normal re-render, hasData is dynamically calculated
+    };
+
+    socketService.on("analytics:update", handler);
 
     const socket = socketService.getInstance();
     const onConnect = () => setSocketConnected(true);
@@ -223,21 +264,13 @@ export default function Analytics() {
     setSocketConnected(socket.connected);
 
     return () => {
-      socketService.off("analytics:update");
+      socketService.off("analytics:update", handler);
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
     };
   }, [siteId]);
 
-  // Leave only on actual component unmount or site change
-  useEffect(() => {
-    return () => {
-      if (joinedRef.current) {
-        socketService.leave(joinedRef.current);
-        joinedRef.current = null;
-      }
-    };
-  }, []);
+
 
   /* ---------- SOCKET RECONNECT → AUTO-REFETCH ---------- */
   useEffect(() => {
@@ -252,15 +285,14 @@ export default function Analytics() {
   /* ---------- CONDITIONAL POLLING (10s until data arrives) ---------- */
   useEffect(() => {
     if (!siteId || siteId === "dashboard") return;
-    const hasAnyData = data.stats?.pageViews > 0 || setup.hasData;
-    if (hasAnyData || loading) return;
+    if (hasData || loading) return;
 
     const interval = setInterval(() => {
       fetchData(true);
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [siteId, data.stats?.pageViews, setup.hasData, loading, fetchData]);
+  }, [siteId, hasData, loading, fetchData]);
 
   /* ---------- INSTALL DETECTION: mark installed on script copy ---------- */
   const handleScriptOpen = useCallback(() => {
@@ -283,10 +315,8 @@ export default function Analytics() {
   };
 
   const countryList = useMemo(() => {
-    const raw = data.charts?.countries || [];
-    const grouped = raw
-      .filter(c => c && c.value > 0)
-      .reduce((acc, cur) => {
+    const raw = data.countries || [];
+    const grouped = raw.reduce((acc, cur) => {
         let name = cur.name === "Unknown" ? "Other" : cur.name;
         if (name === "Local (Dev)") name = "Local";
         
@@ -298,21 +328,12 @@ export default function Analytics() {
       }, {});
       
     return Object.values(grouped).sort((a, b) => b.value - a.value).slice(0, 5);
-  }, [data.charts?.countries]);
+  }, [data.countries]);
 
   /* ---------- RENDER STATES ---------- */
   const hasSite = Boolean(siteId && siteId !== "dashboard" && siteId !== "undefined");
 
-  // Reliable hasData: check multiple signals
-  const hasData = useMemo(() => {
-    if (loading) return false;
-    return (
-      (data.stats?.pageViews || 0) > 0 ||
-      (data.stats?.sessions || 0) > 0 ||
-      (data.stats?.activeUsers || 0) > 0 ||
-      setup.hasData === true
-    );
-  }, [data.stats?.pageViews, data.stats?.sessions, data.stats?.activeUsers, setup.hasData, loading]);
+
 
   // Derived install state: script copied OR backend says installed
   const isInstalled = useMemo(() => {
@@ -354,10 +375,11 @@ export default function Analytics() {
         {loading ? (
           <SkeletonDashboard />
         ) : (
-          <div className="space-y-8">
+          <div className="flex justify-center mt-10">
             <LiveSetupBanner
+              siteId={siteId}
               site={{ ...site, installed: isInstalled }}
-              hasData={hasData}
+              hasData={liveHasData}
               socketConnected={socketConnected}
               openScript={handleScriptOpen}
               onCheckStatus={() => fetchData(true)}
@@ -423,19 +445,14 @@ export default function Analytics() {
         </div>
       </header>
 
-      {!hasData ? (
-        <div className="space-y-8">
-          <LiveSetupBanner
-            site={{ ...site, installed: isInstalled }}
-            hasData={hasData}
-            socketConnected={socketConnected}
-            openScript={handleScriptOpen}
-            onCheckStatus={() => fetchData(true)}
-          />
-        </div>
-      ) : (
-        <div className="space-y-8">
-          {/* KPI GRID */}
+      <div className="space-y-8">
+        {/* SUCCESS BANNER — shows "Tracking Active 🎉" then auto-dismisses */}
+        <LiveSetupBanner
+          site={{ ...site, installed: isInstalled }}
+          hasData={liveHasData}
+        />
+
+        {/* KPI GRID */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <KpiCard label="Page Views" value={data.stats?.pageViews} icon={Eye} />
             <KpiCard label="Sessions" value={data.stats?.sessions} icon={Layout} />
@@ -451,7 +468,7 @@ export default function Analytics() {
                 <span className="w-2 h-2 rounded-full bg-blue-500" /> Unique Visitors
               </div>
             </div>
-            <TrafficOverview data={data.charts?.traffic} range={range} loading={loading} />
+            <TrafficOverview data={chartData} range={range} loading={loading} />
           </section>
 
           {/* DISTRIBUTION GRID */}
@@ -462,7 +479,7 @@ export default function Analytics() {
                 <Compass className="w-4 h-4 text-gray-400" /> Top Browsers
               </h3>
               <div className="space-y-4">
-                {data.charts?.browsers?.slice(0, 5).map((b, i) => (
+                {data.browsers?.slice(0, 5).map((b, i) => (
                   <div key={i} className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {BROWSER_ICONS[b.name?.toLowerCase()] ? (
@@ -490,7 +507,7 @@ export default function Analytics() {
                 <Smartphone className="w-4 h-4 text-gray-400" /> Device Types
               </h3>
               <div className="space-y-4">
-                {data.charts?.devices?.slice(0, 5).map((d, i) => (
+                {data.devices?.slice(0, 5).map((d, i) => (
                   <div key={i} className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {d.name?.toLowerCase().includes("mobile") && <Smartphone className="w-4 h-4 text-gray-400" />}
@@ -544,7 +561,11 @@ export default function Analytics() {
               <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
                 <Zap className="w-5 h-5 text-amber-400" /> Top Performing Pages
               </h2>
-              <VisitedPagesCard pages={data.tables?.pages} loading={loading} />
+         <VisitedPagesCard
+  pages={data.pages}
+  loading={loading}
+  siteId={siteId}
+/>
             </section>
 
             <section className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
@@ -573,7 +594,6 @@ export default function Analytics() {
              <LiveUsers siteId={siteId} />
           </section>
         </div>
-      )}
 
       {/* SCRIPT MODAL */}
       <ScriptModal

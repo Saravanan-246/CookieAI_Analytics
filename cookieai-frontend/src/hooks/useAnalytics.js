@@ -82,9 +82,14 @@ export const useAnalytics = (siteId) => {
         if (!oldData) return newData;
         return {
           ...oldData,
-          ...newData,
-          traffic: newData.traffic || oldData.traffic,
-          topCountries: newData.topCountries || oldData.topCountries,
+          stats: newData.stats ?? oldData.stats,
+          traffic: newData.traffic?.length ? newData.traffic : oldData.traffic,
+          devices: newData.devices?.length ? newData.devices : oldData.devices,
+          browsers: newData.browsers?.length ? newData.browsers : oldData.browsers,
+          countries: newData.countries?.length ? newData.countries : oldData.countries,
+          pages: newData.pages?.length ? newData.pages : oldData.pages,
+          tables: newData.tables ?? oldData.tables,
+          charts: newData.charts ?? oldData.charts,
         };
       });
     };

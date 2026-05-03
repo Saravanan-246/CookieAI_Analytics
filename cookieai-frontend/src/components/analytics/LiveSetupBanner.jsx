@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Copy, Check, ExternalLink, Rocket, Activity, Zap, ShieldCheck, X } from "lucide-react";
 
 const STORAGE_KEY = "cookieai_banner_dismissed";
+const HAS_DATA_KEY = "cookieai_has_data";
 
 const LiveSetupBanner = ({
   site,
@@ -11,30 +12,18 @@ const LiveSetupBanner = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [fading, setFading] = useState(false);
-  const [dismissed, setDismissed] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  
+  const [dismissed, setDismissed] = useState(false);
   const hasTriggeredCollapse = useRef(false);
 
   const installed = Boolean(site?.installed || site?.trackingInstalled);
   const isNoScript = !installed;
-  const isWaiting = installed && !hasData;
+  const isWaiting = !hasData;
   const isLive = hasData;
 
   const handleDismiss = useCallback(() => {
     setFading(true);
     setTimeout(() => {
       setDismissed(true);
-      try {
-        localStorage.setItem(STORAGE_KEY, "true");
-      } catch (err) {
-        console.error("Storage error:", err);
-      }
     }, 400);
   }, []);
 
@@ -48,7 +37,6 @@ const LiveSetupBanner = ({
 
   useEffect(() => {
     if (site?.siteId && !hasData) {
-      try { localStorage.removeItem(STORAGE_KEY); } catch {}
       setDismissed(false);
       setFading(false);
       hasTriggeredCollapse.current = false;

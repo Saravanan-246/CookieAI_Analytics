@@ -1,15 +1,14 @@
 import { motion, AnimatePresence } from "framer-motion";
 import CardWrapper from "../common/CardWrapper";
 import EmptyState from "../common/EmptyState";
-import { Globe } from "lucide-react";
 
 export default function LiveFeed({ events = [] }) {
   const safeEvents = Array.isArray(events) ? events : [];
 
   return (
     <CardWrapper title="Live Activity">
-      
-      {/* EMPTY */}
+
+      {/* EMPTY STATE */}
       {safeEvents.length === 0 ? (
         <div className="h-[260px] flex items-center justify-center">
           <EmptyState
@@ -32,13 +31,13 @@ export default function LiveFeed({ events = [] }) {
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.25 }}
+                  transition={{ duration: 0.2 }}
                   className="
                     flex items-center justify-between
                     bg-white border border-gray-100
                     rounded-xl px-3 py-2.5
                     hover:shadow-sm hover:border-gray-200
-                    transition-all
+                    transition-all duration-200
                   "
                 >
                   {/* LEFT */}
@@ -59,7 +58,7 @@ export default function LiveFeed({ events = [] }) {
 
                   {/* RIGHT */}
                   <div className="flex items-center gap-2 ml-3">
-                    
+
                     {/* LIVE DOT */}
                     <div className="relative">
                       <div className="absolute inset-0 bg-emerald-400 rounded-full animate-ping opacity-20" />
@@ -78,16 +77,6 @@ export default function LiveFeed({ events = [] }) {
         </div>
       )}
 
-      {/* SCROLLBAR */}
-      <style jsx>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #e5e7eb;
-          border-radius: 20px;
-        }
-      `}</style>
     </CardWrapper>
   );
 }

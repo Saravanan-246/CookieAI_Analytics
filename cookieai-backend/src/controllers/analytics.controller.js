@@ -41,33 +41,33 @@ exports.getSummary = async (req, res) => {
       Visit.countDocuments({ siteId: realSiteId }),      // 🔥 FROM VISIT
       Session.countDocuments({ siteId: realSiteId }),
       Event.distinct("sessionId", { siteId: realSiteId }), // 🔥 FROM EVENT (Unique Visitors)
-      Session.countDocuments({
+      Session.distinct("sessionId", {
         siteId: realSiteId,
         isActive: true,
-        lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
-      }),
+        lastSeen: { $gte: new Date(Date.now() - 15 * 1000) }
+      }).then(res => res.length),
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", device: { $first: "$device" } } },
-        { $group: { _id: "$device", count: { $sum: 1 } } }
-      ]), // 🔥 FROM VISIT
+        { $group: { _id: "$device", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
+      ]), // 🔥 UNIQUE SESSIONS per device
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", browser: { $first: "$browser" } } },
-        { $group: { _id: "$browser", count: { $sum: 1 } } }
-      ]), // 🔥 FROM VISIT
+        { $group: { _id: "$browser", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
+      ]), // 🔥 UNIQUE SESSIONS per browser
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", country: { $first: "$country" } } },
-        { $group: { _id: "$country", count: { $sum: 1 } } }
-      ]), // 🔥 FROM VISIT
+        { $group: { _id: "$country", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
+      ]), // 🔥 UNIQUE SESSIONS per country
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $group: { _id: "$path", visitorsSet: { $addToSet: "$sessionId" }, pageViews: { $sum: 1 } } },
-        { $project: { _id: 1, visitors: { $size: "$visitorsSet" }, pageViews: 1 } },
+        { $group: { _id: "$path", pageViews: { $sum: 1 }, visitors: { $addToSet: "$sessionId" } } },
+        { $project: { path: "$_id", pageViews: 1, visitors: { $size: "$visitors" } } },
         { $sort: { pageViews: -1 } },
         { $limit: 10 }
       ])
@@ -118,33 +118,33 @@ const calculateSummary = async (siteId) => {
       Visit.countDocuments({ siteId: realSiteId, time: { $gte: startTime } }),
       Session.countDocuments({ siteId: realSiteId }),
       Event.distinct("sessionId", { siteId: realSiteId }),
-      Session.countDocuments({
+      Session.distinct("sessionId", {
         siteId: realSiteId,
         isActive: true,
-        lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
-      }),
+        lastSeen: { $gte: new Date(Date.now() - 15 * 1000) }
+      }).then(res => res.length),
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", device: { $first: "$device" } } },
-        { $group: { _id: "$device", count: { $sum: 1 } } }
+        { $group: { _id: "$device", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
       ]),
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", browser: { $first: "$browser" } } },
-        { $group: { _id: "$browser", count: { $sum: 1 } } }
+        { $group: { _id: "$browser", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
       ]),
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", country: { $first: "$country" } } },
-        { $group: { _id: "$country", count: { $sum: 1 } } }
+        { $group: { _id: "$country", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
       ]),
       Visit.aggregate([
         { $match: { siteId: realSiteId, time: { $gte: startTime } } },
-        { $group: { _id: "$path", visitorsSet: { $addToSet: "$sessionId" }, pageViews: { $sum: 1 } } },
-        { $project: { _id: 1, visitors: { $size: "$visitorsSet" }, pageViews: 1 } },
+        { $group: { _id: "$path", pageViews: { $sum: 1 }, visitors: { $addToSet: "$sessionId" } } },
+        { $project: { path: "$_id", pageViews: 1, visitors: { $size: "$visitors" } } },
         { $sort: { pageViews: -1 } },
         { $limit: 10 }
       ])
@@ -195,9 +195,21 @@ exports.getCharts = async (req, res) => {
         },
         { $project: { time: "$_id", visitors: { $size: "$visitors" }, sessions: 1 } }
       ]),
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$device", count: { $sum: 1 } } }]),
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$browser", count: { $sum: 1 } } }]),
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }])
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $group: { _id: "$device", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } }
+      ]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $group: { _id: "$browser", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } }
+      ]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $group: { _id: "$country", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } }
+      ])
     ]);
 
     const now = new Date();
@@ -232,22 +244,22 @@ exports.getDashboardData = async (req, res) => {
       Visit.countDocuments({ siteId: realSiteId, time: { $gte: startTime } }),
       Session.countDocuments({ siteId: realSiteId }),
       Event.distinct("sessionId", { siteId: realSiteId }),
-      Session.countDocuments({
+      Session.distinct("sessionId", {
         siteId: realSiteId,
         isActive: true,
-        lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
-      }),
+        lastSeen: { $gte: new Date(Date.now() - 15 * 1000) }
+      }).then(res => res.length),
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", device: { $first: "$device" } } },
-        { $group: { _id: "$device", count: { $sum: 1 } } }
+        { $group: { _id: "$device", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
       ]),
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
-        { $sort: { time: -1 } },
-        { $group: { _id: "$sessionId", country: { $first: "$country" } } },
-        { $group: { _id: "$country", count: { $sum: 1 } } }
+        { $group: { _id: "$country", sessions: { $addToSet: "$sessionId" } } },
+        { $project: { _id: 1, count: { $size: "$sessions" } } },
+        { $sort: { count: -1 } }
       ])
     ]);
 

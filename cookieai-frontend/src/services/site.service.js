@@ -31,13 +31,18 @@ export const siteService = {
         return sitesCache;
       }
 
-      const res = await apiRequest.get("/sites");
+      const token = localStorage.getItem("token") || "";
+      const res = await apiRequest.get("/sites", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-      const raw =
-        res?.data?.data ||
-        res?.data?.sites ||
-        res?.data ||
-        [];
+      console.log("Sites API response:", res.data);
+
+      const raw = Array.isArray(res?.data?.data)
+        ? res.data.data
+        : Array.isArray(res?.data)
+        ? res.data
+        : [];
 
       const sites = raw.map(normalizeSite);
 

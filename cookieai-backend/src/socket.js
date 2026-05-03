@@ -6,7 +6,6 @@ const activeUsers = new Map();     // siteId -> Set(socketIds)
 const socketSiteMap = new Map();   // socketId -> siteId
 
 /* ================= PERF CACHE ================= */
-const lastEmittedPayloads = new Map(); // siteId -> key
 const summaryCache = new Map();        // siteId -> { data, timestamp }
 const CACHE_TTL = 2000;               // 2s
 
@@ -108,24 +107,26 @@ const emitAnalyticsUpdate = (siteId, data) => {
   if (!io || !siteId || !data) return;
 
   const payload = {
-    stats: {
-      activeUsers: data.activeUsers || 0,
-      pageViews: data.pageViews || 0,
-      sessions: data.sessions || 0,
-    },
-    charts: {
-      devices: data.devices || [],
-      countries: data.countries || [],
-      pages: data.pages || [],
-      browsers: data.browsers || [],
-    },
+    stats: {},
     updatedAt: new Date().toISOString(),
   };
+
+  if (data.pageViews !== undefined) payload.stats.pageViews = data.pageViews;
+  if (data.sessions !== undefined) payload.stats.sessions = data.sessions;
+  if (data.activeUsers !== undefined) payload.stats.activeUsers = data.activeUsers;
+  if (data.bounceRate !== undefined) payload.stats.bounceRate = data.bounceRate;
+  if (data.visitors !== undefined) payload.stats.visitors = data.visitors;
+
+  if (data.pages) payload.pages = data.pages;
+  if (data.devices) payload.devices = data.devices;
+  if (data.countries) payload.countries = data.countries;
+  if (data.browsers) payload.browsers = data.browsers;
+  if (data.traffic) payload.traffic = data.traffic;
 
   io.to(siteId).emit("analytics:update", payload);
 
   console.log(
-    `[Socket] 📤 ${siteId} → full analytics update`
+    `[Socket] 📤 ${siteId} → analytics update (pv: ${payload.stats.pageViews}, active: ${payload.stats.activeUsers})`
   );
 };
 

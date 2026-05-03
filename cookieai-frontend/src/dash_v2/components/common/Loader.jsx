@@ -23,14 +23,6 @@ export default function Loader({ lines = 3 }) {
         />
       ))}
 
-      {/* STYLE */}
-      <style jsx>{`
-        @keyframes shimmer {
-          100% {
-            transform: translateX(100%);
-          }
-        }
-      `}</style>
     </div>
   );
 }
@@ -82,13 +74,6 @@ export function DashboardSkeleton() {
         <div className={`h-[220px] bg-gray-100 rounded-2xl ${shimmer}`} />
       </div>
 
-      <style jsx>{`
-        @keyframes shimmer {
-          100% {
-            transform: translateX(100%);
-          }
-        }
-      `}</style>
     </div>
   );
 }
