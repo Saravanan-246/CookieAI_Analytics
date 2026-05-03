@@ -88,35 +88,13 @@
     };
 
     /* ================= SESSION ================= */
-    const SESSION_KEY = `cookie_session_${siteId}`;
-    const SESSION_SS_KEY = `cookie_ss_${siteId}`;
-    const SESSION_FLAG = `cookie_session_flag_${siteId}`;
-    const SESSION_TS_KEY = `cookie_session_ts_${siteId}`;
-    const QUEUE_KEY = `cookie_queue_${siteId}`;
-    const LAST_PATH_KEY = `cookie_lastpath_${siteId}`;
-    const LAST_PV_TS_KEY = `cookie_lastpv_ts_${siteId}`;
-    const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
-
-    /* Session logic:
-     * - sessionStorage keeps session across refreshes within same tab
-     * - localStorage stores last activity timestamp for 30-min timeout
-     * - New session only if: new tab OR idle > 30 minutes
-     */
     const generateSessionId = () => Math.random().toString(36).slice(2) + Date.now();
 
-    let sessionId = sessionStorage.getItem(SESSION_SS_KEY);
-    const lastActivityTs = parseInt(localStorage.getItem(SESSION_TS_KEY) || "0", 10);
-    const isExpired = lastActivityTs > 0 && (Date.now() - lastActivityTs > SESSION_TIMEOUT);
+    let sessionId = localStorage.getItem("cookieai_sid") || generateSessionId();
+    localStorage.setItem("cookieai_sid", sessionId);
 
-    if (!sessionId || isExpired) {
-      sessionId = generateSessionId();
-      sessionStorage.setItem(SESSION_SS_KEY, sessionId);
-      // Clear the session flag so session_start fires for the new session
-      sessionStorage.removeItem(SESSION_FLAG);
-    }
-
-    // Keep localStorage in sync (backward compat)
-    localStorage.setItem(SESSION_KEY, sessionId);
+    const QUEUE_KEY = `cookie_queue_${siteId}`;
+    const SESSION_TS_KEY = `cookie_session_ts_${siteId}`;
     localStorage.setItem(SESSION_TS_KEY, String(Date.now()));
 
     /* ================= SESSION QUALITY TRACKING ================= */

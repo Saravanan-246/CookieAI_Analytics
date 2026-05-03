@@ -52,8 +52,18 @@ exports.getSummary = async (req, res) => {
         { $group: { _id: "$sessionId", device: { $first: "$device" } } },
         { $group: { _id: "$device", count: { $sum: 1 } } }
       ]), // 🔥 FROM VISIT
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$browser", count: { $sum: 1 } } }]), // 🔥 FROM VISIT
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }]), // 🔥 FROM VISIT
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", browser: { $first: "$browser" } } },
+        { $group: { _id: "$browser", count: { $sum: 1 } } }
+      ]), // 🔥 FROM VISIT
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", country: { $first: "$country" } } },
+        { $group: { _id: "$country", count: { $sum: 1 } } }
+      ]), // 🔥 FROM VISIT
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
         { $group: { _id: "$path", visitorsSet: { $addToSet: "$sessionId" }, pageViews: { $sum: 1 } } },
@@ -119,8 +129,18 @@ const calculateSummary = async (siteId) => {
         { $group: { _id: "$sessionId", device: { $first: "$device" } } },
         { $group: { _id: "$device", count: { $sum: 1 } } }
       ]),
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$browser", count: { $sum: 1 } } }]),
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", browser: { $first: "$browser" } } },
+        { $group: { _id: "$browser", count: { $sum: 1 } } }
+      ]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", country: { $first: "$country" } } },
+        { $group: { _id: "$country", count: { $sum: 1 } } }
+      ]),
       Visit.aggregate([
         { $match: { siteId: realSiteId, time: { $gte: startTime } } },
         { $group: { _id: "$path", visitorsSet: { $addToSet: "$sessionId" }, pageViews: { $sum: 1 } } },
@@ -223,7 +243,12 @@ exports.getDashboardData = async (req, res) => {
         { $group: { _id: "$sessionId", device: { $first: "$device" } } },
         { $group: { _id: "$device", count: { $sum: 1 } } }
       ]),
-      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }])
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", country: { $first: "$country" } } },
+        { $group: { _id: "$country", count: { $sum: 1 } } }
+      ])
     ]);
 
     return res.json({

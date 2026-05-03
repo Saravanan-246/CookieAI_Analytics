@@ -13,15 +13,15 @@ const {
 const lastEmit = new Map();
 const EMIT_DEBOUNCE = 500;
 
-/* ---------- PAGE VIEW DEDUP CACHE ---------- */
-const recentPageViews = new Map();
-const PV_DEDUP_WINDOW = 3000; // 3 seconds
+/* ---------- EVENT DEDUP CACHE ---------- */
+const recentEvents = new Map();
+const DEDUP_WINDOW = 2000; // 2 seconds
 
 // Auto-clean stale entries every 30 seconds
 setInterval(() => {
   const now = Date.now();
-  for (const [key, ts] of recentPageViews) {
-    if (now - ts > 10000) recentPageViews.delete(key);
+  for (const [key, ts] of recentEvents) {
+    if (now - ts > 10000) recentEvents.delete(key);
   }
 }, 30000);
 
@@ -191,23 +191,21 @@ const processEvent = async (data, reqInfo) => {
 
     /* ---------- SAVE CORE EVENT ---------- */
 
-    /* ---------- PAGE_VIEW DEDUP (server-side safety net) ---------- */
-    if (finalType === "page_view") {
-      const dedupKey = `${sessionId}::${finalPath}`;
-      const lastPvTs = recentPageViews.get(dedupKey) || 0;
+    /* ---------- GLOBAL EVENT DEDUP ---------- */
+    const dedupKey = `${sessionId}::${finalType}::${finalPath}`;
+    const lastEventTs = recentEvents.get(dedupKey) || 0;
 
-      if (Date.now() - lastPvTs < PV_DEDUP_WINDOW) {
-        console.log(`⏭️ DEDUP: skipped duplicate page_view ${dedupKey}`);
-        // Still update session lastSeen so session stays active
-        await Session.updateOne(
-          { siteId: realSiteId, sessionId },
-          { $set: { lastSeen: eventTime, isActive: true } }
-        ).catch(() => {});
-        return;
-      }
-
-      recentPageViews.set(dedupKey, Date.now());
+    if (Date.now() - lastEventTs < DEDUP_WINDOW) {
+      console.log(`⏭️ DEDUP: skipped duplicate event ${dedupKey}`);
+      // Still update session lastSeen so session stays active
+      await Session.updateOne(
+        { siteId: realSiteId, sessionId },
+        { $set: { lastSeen: eventTime, isActive: true } }
+      ).catch(() => {});
+      return;
     }
+
+    recentEvents.set(dedupKey, Date.now());
 
     await Event.create({
       siteId: realSiteId, sessionId, userId, type: finalType,
@@ -263,17 +261,16 @@ const processEvent = async (data, reqInfo) => {
           ]),
           Visit.aggregate([
             { $match: { siteId: realSiteId } },
+            { $sort: { time: -1 } },
             {
               $group: {
-                _id: {
-                  browser: "$browser",
-                  sessionId: "$sessionId"
-                }
+                _id: "$sessionId",
+                browser: { $first: "$browser" }
               }
             },
             {
               $group: {
-                _id: "$_id.browser",
+                _id: "$browser",
                 value: { $sum: 1 }
               }
             },
@@ -281,19 +278,18 @@ const processEvent = async (data, reqInfo) => {
           ]),
           Visit.aggregate([
             { $match: { siteId: realSiteId } },
+            { $sort: { time: -1 } },
             {
               $group: {
-                _id: {
-                  country: "$country",
-                  code: "$countryCode",
-                  sessionId: "$sessionId"
-                }
+                _id: "$sessionId",
+                country: { $first: "$country" },
+                code: { $first: "$countryCode" }
               }
             },
             {
               $group: {
-                _id: "$_id.country",
-                code: { $first: "$_id.code" },
+                _id: "$country",
+                code: { $first: "$code" },
                 value: { $sum: 1 }
               }
             },
