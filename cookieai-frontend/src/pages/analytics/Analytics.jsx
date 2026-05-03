@@ -1,634 +1,592 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useParams } from "react-router-dom";
-import { Globe, RefreshCw } from "lucide-react";
+import { useEffect, useState, useRef, useCallback, useMemo, memo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  Globe, RefreshCw, BarChart3, ArrowRight, Zap, Sparkles,
+  AlertCircle, Eye, Timer, TrendingDown, Users, Activity,
+  Smartphone, Monitor, Tablet, MoreHorizontal, Compass,
+  ArrowUpRight, ArrowDownRight, Layout
+} from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell
+} from "recharts";
 
 import analyticsService from "../../services/analytics.service";
 import siteService from "../../services/site.service";
 import { socketService } from "../../services/socket.service";
 
-import TrafficChart from "../../components/charts/TrafficChart";
-import Filters from "./Filters";
 import ScriptModal from "../../components/sites/ScriptModal";
+import LiveSetupBanner from "../../components/analytics/LiveSetupBanner";
+import VisitedPagesCard from "../../components/analytics/VisitedPagesCard";
+import LiveFeed from "../../dash_v2/components/realtime/LiveFeed";
+import LiveUsers from "../../dash_v2/components/realtime/LiveUsers";
+import KpiCard from "../../components/analytics/KpiCard";
 
-/* ───────────────────────────────────────────────
-   EMPTY STATE CONSTANT
-─────────────────────────────────────────────── */
+// UI COMPONENTS
+import EmptyDashboard from "../../components/ui/EmptyDashboard";
+import SkeletonDashboard from "../../components/ui/SkeletonDashboard";
+import DashboardPreview from "../../components/ui/DashboardPreview";
+
+// INSTALL DETECTION KEY
+const INSTALL_KEY = "cookieai_script_copied";
+
+/* ================= TYPES & CONSTANTS ================= */
 const EMPTY = {
-  success: true,
-
-  totalVisitors: 0,
-  visitorGrowth: 0,
-
-  totalPageViews: 0,
-  viewGrowth: 0,
-
-  totalSessions: 0,
-  activeUsers: 0,
-
-  avgSessionDuration: 0,
-  avgPagesPerSession: 0,
-  bounceRate: 0,
-
-  traffic: [],
-  topCountries: [],
-  topPages: [],
-  devices: [],
-  os: [],
+  stats: {
+    pageViews: 0,
+    sessions: 0,
+    activeUsers: 0,
+    bounceRate: 0
+  },
+  charts: {
+    traffic: [],
+    devices: [],
+    browsers: [],
+    countries: []
+  },
+  tables: {
+    pages: []
+  }
 };
 
-/* ───────────────────────────────────────────────
-   COMPONENT
-─────────────────────────────────────────────── */
+const CHART_COLORS = ["#000000", "#111111", "#222222", "#333333", "#444444"];
+const PREMIUM_BLUE = "#3b82f6";
+const PREMIUM_EMERALD = "#10b981";
+
+const BROWSER_ICONS = {
+  chrome: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/chrome/chrome-original.svg",
+  firefox: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/firefox/firefox-original.svg",
+  safari: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/safari/safari-original.svg",
+  edge: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/edge/edge-original.svg"
+};
+
+/* ================= UTILS ================= */
+const formatValue = (val, type = "number") => {
+  if (val === undefined || val === null) return "0";
+  if (type === "percent") return `${val}%`;
+  if (type === "duration") return `${val}s`;
+  if (val >= 1000000) return (val / 1000000).toFixed(1) + "M";
+  if (val >= 1000) return (val / 1000).toFixed(1) + "K";
+  return val.toString();
+};
+
+/* ================= COMPONENTS ================= */
+
+
+/**
+ * Premium Traffic Chart
+ */
+const TrafficOverview = memo(({ data, range, loading }) => {
+  if (loading) return <div className="h-80 bg-gray-50 rounded-2xl animate-pulse" />;
+  
+  const is24h = range === "24h";
+  
+  return (
+    <div className="h-80 w-full mt-6">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="colorVisits" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={PREMIUM_BLUE} stopOpacity={0.1}/>
+              <stop offset="95%" stopColor={PREMIUM_BLUE} stopOpacity={0}/>
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+          <XAxis 
+            dataKey="time" 
+            axisLine={false} 
+            tickLine={false} 
+            tick={{ fontSize: 11, fill: "#999" }}
+            tickFormatter={(val) => is24h ? val.split("T")[1]?.slice(0, 5) || val : val}
+          />
+          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#999" }} />
+          <Tooltip 
+            contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }}
+            labelStyle={{ fontSize: "12px", fontWeight: "600", marginBottom: "4px" }}
+          />
+          <Area 
+            type="monotone" 
+            dataKey="visitors" 
+            stroke={PREMIUM_BLUE} 
+            strokeWidth={2.5}
+            fillOpacity={1} 
+            fill="url(#colorVisits)" 
+            animationDuration={1500}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+});
+
+/* ================= MAIN DASHBOARD ================= */
 export default function Analytics() {
   const { siteId } = useParams();
-  const isValidSiteId = Boolean(siteId && siteId !== "dashboard");
+  const navigate = useNavigate();
 
-  /* ── state ── */
   const [site, setSite] = useState(null);
   const [data, setData] = useState(EMPTY);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [range, setRange] = useState("7d");
-  const [env, setEnv] = useState("all");
-
-  /* ── script modal state ── */
+  const [setup, setSetup] = useState({ installed: false, hasData: false });
   const [showScript, setShowScript] = useState(false);
-  const [scriptData, setScriptData] = useState(null);
-  const [scriptLoading, setScriptLoading] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [scriptCopied, setScriptCopied] = useState(() => {
+    try { return localStorage.getItem(INSTALL_KEY) === "true"; } catch { return false; }
+  });
 
-  /* ── refs ── */
-  const rangeRef = useRef("7d");
-  const envRef = useRef("all");
-  const fetchingRef = useRef(false);
-  const initialLoadDone = useRef(false);
-  const activeSiteIdRef = useRef(siteId);
-  const lastUpdateRef = useRef(0);
+  const refs = useRef({ fetching: false });
 
-  /* 🔥 keep refs updated */
+  /* ---------- DATA FETCH ---------- */
+  const fetchData = useCallback(async (isSilent = false) => {
+    if (!siteId || ["dashboard", "undefined", "null"].includes(siteId)) return;
+    if (!isSilent && !refs.current.initialLoaded) setLoading(true);
+    
+    try {
+      const [siteRes, summaryRes, chartsRes, setupRes] = await Promise.all([
+        siteService.getSiteById(siteId),
+        analyticsService.getSummary(siteId),
+        analyticsService.getCharts(siteId, range),
+        analyticsService.getSetupStatus(siteId)
+      ]);
+
+      setSite(siteRes);
+      setData({
+        stats: {
+          pageViews: summaryRes?.stats?.pageViews || summaryRes?.pageViews || 0,
+          sessions: summaryRes?.stats?.sessions || summaryRes?.sessions || 0,
+          activeUsers: summaryRes?.stats?.activeUsers || summaryRes?.activeUsers || 0,
+          bounceRate: summaryRes?.stats?.bounceRate || summaryRes?.bounceRate || 0,
+        },
+        charts: {
+          traffic: chartsRes?.traffic || [],
+          devices: chartsRes?.devices || [],
+          browsers: chartsRes?.browsers || [],
+          countries: chartsRes?.countries || [],
+        },
+        tables: {
+          pages: summaryRes?.tables?.pages || []
+        }
+      });
+      setSetup(setupRes);
+    } catch (err) {
+      console.error("Dashboard error:", err);
+    } finally {
+      refs.current.initialLoaded = true;
+      setLoading(false);
+    }
+  }, [siteId, range]);
+
   useEffect(() => {
-    rangeRef.current = range;
-  }, [range]);
+    fetchData();
+  }, [fetchData]);
+
+  /* ---------- REALTIME ---------- */
+  const joinedRef = useRef(null);
 
   useEffect(() => {
-    envRef.current = env;
-  }, [env]);
+    if (!siteId || siteId === "undefined") return;
+    
+    // ✅ JOIN ROOM ONLY ONCE (DEDUPED)
+    if (joinedRef.current !== siteId) {
+      socketService.connect();
+      socketService.join(siteId);
+      joinedRef.current = siteId;
+      console.log(`[Socket] 📡 joined ${siteId}`);
+    }
 
-  useEffect(() => {
-    activeSiteIdRef.current = siteId;
+    socketService.on("analytics:update", (incoming) => {
+      setData(prev => ({
+        ...prev,
+        stats: {
+          ...prev.stats,
+          ...(incoming.stats || {})
+        },
+        charts: {
+          traffic: incoming.charts?.traffic || prev.charts.traffic,
+          devices: incoming.charts?.devices?.length ? incoming.charts.devices : prev.charts.devices,
+          browsers: incoming.charts?.browsers?.length ? incoming.charts.browsers : prev.charts.browsers,
+          countries: incoming.charts?.countries?.length ? incoming.charts.countries : prev.charts.countries
+        },
+        tables: {
+          ...prev.tables,
+          pages: incoming.charts?.pages?.length ? incoming.charts.pages : prev.tables.pages
+        }
+      }));
+    });
+
+    const socket = socketService.getInstance();
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => setSocketConnected(false);
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    setSocketConnected(socket.connected);
+
+    return () => {
+      socketService.off("analytics:update");
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+    };
   }, [siteId]);
 
+  // Leave only on actual component unmount or site change
+  useEffect(() => {
+    return () => {
+      if (joinedRef.current) {
+        socketService.leave(joinedRef.current);
+        joinedRef.current = null;
+      }
+    };
+  }, []);
 
-  /* ─────────────────────────────────────────────
-     CORE FETCH
-  ───────────────────────────────────────────── */
-const fetchData = useCallback(
-  async (isFirst = false) => {
-    if (!isValidSiteId || fetchingRef.current) return;
+  /* ---------- SOCKET RECONNECT → AUTO-REFETCH ---------- */
+  useEffect(() => {
+    if (!siteId) return;
+    const unsubscribe = socketService.onReconnect(() => {
+      console.log("[Analytics] 🔄 Socket reconnected — refetching data");
+      fetchData(true);
+    });
+    return unsubscribe;
+  }, [siteId, fetchData]);
 
-    const currentSiteId = siteId;
-    fetchingRef.current = true;
+  /* ---------- CONDITIONAL POLLING (10s until data arrives) ---------- */
+  useEffect(() => {
+    if (!siteId || siteId === "dashboard") return;
+    const hasAnyData = data.stats?.pageViews > 0 || setup.hasData;
+    if (hasAnyData || loading) return;
 
-    if (isFirst) setLoading(true);
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 10000);
 
+    return () => clearInterval(interval);
+  }, [siteId, data.stats?.pageViews, setup.hasData, loading, fetchData]);
+
+  /* ---------- INSTALL DETECTION: mark installed on script copy ---------- */
+  const handleScriptOpen = useCallback(() => {
+    setShowScript(true);
     try {
-      const res = await analyticsService.getSummary(
-        currentSiteId,
-        rangeRef.current,
-        envRef.current
-      );
+      localStorage.setItem(INSTALL_KEY, "true");
+      setScriptCopied(true);
+    } catch {}
+  }, []);
+  
+  const getFlag = (code) => {
+    if (!code || code === "LOCAL" || code === "XX") return null;
+    return `https://flagcdn.com/w40/${code.toLowerCase()}.png`;
+  };
 
-      // 🔒 prevent stale update
-      if (activeSiteIdRef.current !== currentSiteId) return;
+  const formatCountry = (name) => {
+    if (!name || name === "Unknown") return "Other";
+    if (name.includes("Local")) return "Local";
+    return name;
+  };
 
-      // ✅ safe replace
-      setData(
-        res && typeof res === "object" ? res : EMPTY
-      );
+  const countryList = useMemo(() => {
+    const raw = data.charts?.countries || [];
+    const grouped = raw
+      .filter(c => c && c.value > 0)
+      .reduce((acc, cur) => {
+        let name = cur.name === "Unknown" ? "Other" : cur.name;
+        if (name === "Local (Dev)") name = "Local";
+        
+        if (!acc[name]) {
+          acc[name] = { name, value: 0, code: cur.code };
+        }
+        acc[name].value += cur.value;
+        return acc;
+      }, {});
+      
+    return Object.values(grouped).sort((a, b) => b.value - a.value).slice(0, 5);
+  }, [data.charts?.countries]);
 
-    } catch (err) {
-      if (activeSiteIdRef.current === currentSiteId) {
-        console.error("Analytics fetch error:", err);
-        setData(EMPTY);
-      }
-    } finally {
-      // 🔥 always release lock
-      fetchingRef.current = false;
+  /* ---------- RENDER STATES ---------- */
+  const hasSite = Boolean(siteId && siteId !== "dashboard" && siteId !== "undefined");
 
-      if (activeSiteIdRef.current === currentSiteId && isFirst) {
-        setLoading(false);
-      }
-    }
-  },
-  [isValidSiteId, siteId]
-);
-  /* ─────────────────────────────────────────────
-     EFFECTS
-  ───────────────────────────────────────────── */
-useEffect(() => {
-  if (!isValidSiteId) {
-    setSite(null);
-    setData(EMPTY);
-    setLoading(false);
-    initialLoadDone.current = false;
-    fetchingRef.current = false;
-    return; // ❌ removed stopPolling
+  // Reliable hasData: check multiple signals
+  const hasData = useMemo(() => {
+    if (loading) return false;
+    return (
+      (data.stats?.pageViews || 0) > 0 ||
+      (data.stats?.sessions || 0) > 0 ||
+      (data.stats?.activeUsers || 0) > 0 ||
+      setup.hasData === true
+    );
+  }, [data.stats?.pageViews, data.stats?.sessions, data.stats?.activeUsers, setup.hasData, loading]);
+
+  // Derived install state: script copied OR backend says installed
+  const isInstalled = useMemo(() => {
+    return scriptCopied || Boolean(site?.installed || site?.trackingInstalled || setup.installed);
+  }, [scriptCopied, site?.installed, site?.trackingInstalled, setup.installed]);
+
+  // 1. NO SITE SELECTED
+  if (!hasSite) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 relative">
+        <div className="absolute inset-0 opacity-40 blur-sm pointer-events-none mt-20">
+          <DashboardPreview />
+        </div>
+        <EmptyDashboard />
+      </div>
+    );
   }
 
-  let cancelled = false;
-
-  const loadSite = async () => {
-    try {
-      const res = await siteService.getSiteById(siteId);
-
-      if (!cancelled) {
-        setSite(res ?? null);
-      }
-    } catch (err) {
-      if (!cancelled) {
-        console.error("Site fetch error:", err);
-        setSite(null);
-      }
-    }
-  };
-
-  loadSite();
-
-  return () => {
-    cancelled = true;
-  };
-}, [isValidSiteId, siteId]);
-
-useEffect(() => {
-  if (!isValidSiteId) return;
-
-  let cancelled = false;
-
-  // 🔥 reset state
-  setData(EMPTY);
-  initialLoadDone.current = false;
-  fetchingRef.current = false;
-
-  const load = async () => {
-    await fetchData(true);
-
-    // 🔒 prevent stale update
-    if (!cancelled && activeSiteIdRef.current === siteId) {
-      initialLoadDone.current = true;
-    }
-  };
-
-  load();
-
-  return () => {
-    cancelled = true;
-  };
-}, [isValidSiteId, siteId, fetchData]);
-
-/* 🔥 FIXED hasData */
-const hasData = useMemo(() => {
-  return (
-    (data?.totalPageViews ?? 0) > 0 ||
-    (data?.activeUsers ?? 0) > 0 ||
-    (Array.isArray(data?.traffic) && data.traffic.length > 0)
-  );
-}, [data]);
-
-
-
-/* ───────── SOCKET ───────── */
-useEffect(() => {
-  if (!isValidSiteId) return;
-
-  const socket = socketService.connect();
-
-  const joinCurrentSite = () => {
-    console.log("📡 Joining socket room:", siteId);
-    socketService.join(siteId);
-  };
-
-  const handleUpdate = (incoming) => {
-    if (!incoming || typeof incoming !== "object") return;
-
-    // 🔥 throttle (outside setState)
-    const now = Date.now();
-    if (now - lastUpdateRef.current < 500) return;
-    lastUpdateRef.current = now;
-
-    console.log("⚡ Real-time Update:", incoming.activeUsers);
-
-    setData((prev) => ({
-      ...prev,
-      ...incoming,
-    }));
-  };
-
-  // 🔥 CLEAN old listeners first (very important)
-  socket.off("connect", joinCurrentSite);
-  socketService.off("analytics:update", handleUpdate);
-
-  // 🔥 attach listeners
-  socket.on("connect", joinCurrentSite);
-  socketService.on("analytics:update", handleUpdate);
-
-  // 🔥 join immediately
-  joinCurrentSite();
-
-  return () => {
-    socket.off("connect", joinCurrentSite);
-    socketService.off("analytics:update", handleUpdate);
-    socketService.leave(siteId);
-  };
-}, [isValidSiteId, siteId]);
-
-  /* ─────────────────────────────────────────────
-     HANDLERS
-  ───────────────────────────────────────────── */
-const openScript = async () => {
-  if (!isValidSiteId) return;
-
-  setShowScript(true);
-  setScriptLoading(true);
-
-  try {
-    const res = await siteService.getScript(siteId);
-
-    if (res && typeof res === "object") {
-      setScriptData(res);
-    } else {
-      setScriptData(null);
-    }
-
-  } catch (err) {
-    console.error("Script load error:", err);
-
-    // 🔥 better UX than alert
-    setScriptData(null);
-  } finally {
-    setScriptLoading(false);
-  }
-};
-
-  /* ─────────────────────────────────────────────
-     RENDER
-  ───────────────────────────────────────────── */
-if (!isValidSiteId) {
-  return (
-    <div className="flex flex-col items-center justify-center h-[70vh] text-center px-6">
-      <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm max-w-md w-full">
-
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">
-          No project selected
-        </h2>
-
-        <p className="text-sm text-gray-500">
-          Select a project from the sidebar to view analytics data.
-        </p>
-
-      </div>
-    </div>
-  );
-}
-
- if (loading && !initialLoadDone.current) {
-  return <LoadingSkeleton />;
-}
-
-return (
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6 sm:space-y-8">
-
-    {/* ===== HEADER ===== */}
-    <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-
-      {/* LEFT */}
-      <div className="min-w-0">
-        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 truncate">
-          {site?.name || "Analytics"}
-        </h1>
-
-        <p className="text-xs sm:text-sm text-gray-500 flex items-center gap-2 mt-1 min-w-0">
-          <Globe className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-          <span className="truncate">{site?.domain || "No domain"}</span>
-
-          {/* 🔥 LIVE INDICATOR */}
-          <span className="ml-2 flex items-center text-green-600 text-xs font-medium">
-            <span className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></span>
-            Live
-          </span>
-        </p>
-      </div>
-
-      {/* RIGHT */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-
-        {/* FILTERS */}
-        <div className="w-full sm:w-auto">
-          <Filters
-            range={range}
-            setRange={setRange}
-            environment={env}
-            setEnvironment={setEnv}
-          />
-        </div>
-
-        {/* REFRESH */}
-        <button
-          onClick={() => fetchData(false)}
-          title="Refresh"
-          className="p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition bg-white shadow-sm active:scale-95"
-        >
-          <RefreshCw className="w-4 h-4 text-gray-500" />
-        </button>
-      </div>
-    </div>
-
-    {/* ===== CONTENT ===== */}
-    {!hasData ? (
-      /* ===== NO DATA ===== */
-      <div className="py-10 sm:py-16">
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 sm:p-10 text-center max-w-2xl mx-auto shadow-sm">
-
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">
-            Waiting for your first visitor
-          </h2>
-
-          <p className="text-sm text-gray-500 mb-6 flex items-center justify-center">
-            Tracking is active
-            <span className="inline-block w-2 h-2 bg-indigo-600 rounded-full ml-2 animate-pulse"></span>
-          </p>
-
-          <p className="text-sm text-gray-600 mb-6">
-            After installing the tracking script, open your website and browse a few pages.
-          </p>
-
-          <button
-            onClick={openScript}
-            className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition"
-          >
-            View Tracking Script
-          </button>
-
-        </div>
-      </div>
-    ) : (
-      <>
-        {/* ===== STATS ===== */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-          <Stat label="Active Users" value={data?.activeUsers ?? 0} />
-          <Stat label="Page Views" value={data?.totalPageViews ?? 0} />
-          <Stat label="Bounce Rate" value={`${data?.bounceRate ?? 0}%`} />
-          <Stat label="Avg Session" value={`${data?.avgSessionDuration ?? 0}s`} />
-        </div>
-
-        {/* ===== CHART ===== */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-sm">
-          <TrafficChart data={Array.isArray(data?.traffic) ? data.traffic : []} />
-        </div>
-
-        {/* ===== GRID ===== */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          <PagesCard data={Array.isArray(data?.topPages) ? data.topPages : []} />
-          <DataCard
-            title="Countries"
-            data={Array.isArray(data?.topCountries) ? data.topCountries : []}
-            type="country"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          <DataCard
-            title="Devices"
-            data={Array.isArray(data?.devices) ? data.devices : []}
-            type="device"
-          />
-          <DataCard
-            title="Operating Systems"
-            data={Array.isArray(data?.os) ? data.os : []}
-            type="os"
-          />
-        </div>
-      </>
-    )}
-
-    {/* ===== SCRIPT MODAL ===== */}
-    <ScriptModal
-      isOpen={showScript}
-      onClose={() => setShowScript(false)}
-      scriptData={scriptData}
-      loading={scriptLoading}
-    />
-
-  </div>
-);
-}
-
-/* ───────────────────────────────────────────────
-   LOADING SKELETON
-─────────────────────────────────────────────── */
-function LoadingSkeleton() {
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6 sm:space-y-8 animate-pulse">
-
-      {/* ===== HEADER ===== */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-
-        <div className="space-y-2">
-          <div className="h-6 sm:h-7 w-40 bg-gray-200 rounded-lg" />
-          <div className="h-3 sm:h-4 w-28 bg-gray-200 rounded" />
-        </div>
-
-        <div className="h-9 w-full sm:w-52 bg-gray-200 rounded-xl" />
-      </div>
-
-      {/* ===== STATS ===== */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3"
-          >
-            <div className="h-3 w-20 bg-gray-200 rounded" />
-            <div className="h-6 sm:h-8 w-16 bg-gray-300 rounded" />
-          </div>
-        ))}
-      </div>
-
-      {/* ===== CHART ===== */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-sm">
-        <div className="h-[220px] sm:h-[300px] bg-gray-200 rounded-xl" />
-      </div>
-
-      {/* ===== TABLES ===== */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        {Array.from({ length: 2 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 shadow-sm"
-          >
-            <div className="h-4 w-28 bg-gray-200 rounded mb-6" />
-
-            <div className="space-y-4">
-              {Array.from({ length: 5 }).map((__, j) => (
-                <div key={j} className="flex items-center justify-between">
-                  <div className="h-3 w-2/3 bg-gray-200 rounded" />
-                  <div className="h-3 w-10 bg-gray-300 rounded" />
-                </div>
-              ))}
+  // 2. SITE EXISTS BUT NO DATA (OR LOADING)
+  if (hasSite && !hasData) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-2xl font-bold text-gray-900">{site?.name || "Analytics"}</h1>
+              <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${socketConnected ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${socketConnected ? "bg-emerald-500 animate-pulse" : "bg-gray-300"}`} />
+                {socketConnected ? "Live" : "Offline"}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <Globe className="w-3.5 h-3.5" />
+              <span>{site?.domain || "No domain"}</span>
             </div>
           </div>
-        ))}
-      </div>
+        </header>
 
+        {loading ? (
+          <SkeletonDashboard />
+        ) : (
+          <div className="space-y-8">
+            <LiveSetupBanner
+              site={{ ...site, installed: isInstalled }}
+              hasData={hasData}
+              socketConnected={socketConnected}
+              openScript={handleScriptOpen}
+              onCheckStatus={() => fetchData(true)}
+            />
+          </div>
+        )}
+
+        {/* SCRIPT MODAL */}
+        <ScriptModal
+          isOpen={showScript}
+          onClose={() => setShowScript(false)}
+          scriptData={{
+            script: site
+              ? `<script defer data-site-id="${site.siteId}" src="${window.location.origin.replace(':3000', ':5000')}/tracker.js"></script>`
+              : ""
+          }}
+          socketConnected={socketConnected}
+          site={site}
+        />
+      </div>
+    );
+  }
+
+  // 3. REAL DASHBOARD
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      
+      {/* HEADER */}
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl font-bold text-gray-900">{site?.name || "Analytics"}</h1>
+            <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${socketConnected ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${socketConnected ? "bg-emerald-500 animate-pulse" : "bg-gray-300"}`} />
+              {socketConnected ? "Live" : "Offline"}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <Globe className="w-3.5 h-3.5" />
+            <a href={`https://${site?.domain}`} target="_blank" rel="noreferrer" className="hover:text-gray-600 transition-colors">
+              {site?.domain}
+            </a>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-gray-100 shadow-sm">
+          {["24h", "7d"].map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${range === r ? "bg-gray-900 text-white shadow-md" : "text-gray-500 hover:bg-gray-50"}`}
+            >
+              {r === "24h" ? "Last 24 Hours" : "Last 7 Days"}
+            </button>
+          ))}
+          <div className="w-px h-4 bg-gray-100 mx-1" />
+          <button 
+            onClick={() => fetchData(true)}
+            className="p-1.5 hover:bg-gray-50 rounded-lg text-gray-400 hover:text-gray-900 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </header>
+
+      {!hasData ? (
+        <div className="space-y-8">
+          <LiveSetupBanner
+            site={{ ...site, installed: isInstalled }}
+            hasData={hasData}
+            socketConnected={socketConnected}
+            openScript={handleScriptOpen}
+            onCheckStatus={() => fetchData(true)}
+          />
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {/* KPI GRID */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <KpiCard label="Page Views" value={data.stats?.pageViews} icon={Eye} />
+            <KpiCard label="Sessions" value={data.stats?.sessions} icon={Layout} />
+            <KpiCard label="Active Users" value={data.stats?.activeUsers} icon={Users} color="emerald" />
+            <KpiCard label="Bounce Rate" value={data.stats?.bounceRate} type="percent" icon={TrendingDown} color="amber" />
+          </div>
+
+          {/* MAIN CHART */}
+          <section className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-bold text-gray-900">Traffic Analysis</h2>
+              <div className="text-[10px] uppercase font-bold text-gray-300 tracking-widest flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500" /> Unique Visitors
+              </div>
+            </div>
+            <TrafficOverview data={data.charts?.traffic} range={range} loading={loading} />
+          </section>
+
+          {/* DISTRIBUTION GRID */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* BROWSERS */}
+            <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 mb-6 flex items-center gap-2 uppercase tracking-tight">
+                <Compass className="w-4 h-4 text-gray-400" /> Top Browsers
+              </h3>
+              <div className="space-y-4">
+                {data.charts?.browsers?.slice(0, 5).map((b, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {BROWSER_ICONS[b.name?.toLowerCase()] ? (
+                        <img
+                          src={BROWSER_ICONS[b.name?.toLowerCase()]}
+                          alt={b.name}
+                          className="w-6 h-6 ml-1 mr-1"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-xs font-bold text-gray-400">
+                          {b.name?.[0]?.toUpperCase()}
+                        </div>
+                      )}
+                      <span className="text-sm font-medium text-gray-700">{b.name || "Unknown"}</span>
+                    </div>
+                    <span className="text-sm font-bold text-gray-900 tabular-nums">{Number(b.value || 0)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* DEVICES */}
+            <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 mb-6 flex items-center gap-2 uppercase tracking-tight">
+                <Smartphone className="w-4 h-4 text-gray-400" /> Device Types
+              </h3>
+              <div className="space-y-4">
+                {data.charts?.devices?.slice(0, 5).map((d, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {d.name?.toLowerCase().includes("mobile") && <Smartphone className="w-4 h-4 text-gray-400" />}
+                      {d.name?.toLowerCase().includes("desktop") && <Monitor className="w-4 h-4 text-gray-400" />}
+                      {d.name?.toLowerCase().includes("tablet") && <Tablet className="w-4 h-4 text-gray-400" />}
+                      <span className="text-sm font-medium text-gray-700">{d.name || "Desktop"}</span>
+                    </div>
+                    <span className="text-sm font-bold text-gray-900 tabular-nums">{Number(d.value || 0)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* COUNTRIES */}
+            <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 mb-6 flex items-center gap-2 uppercase tracking-tight">
+                <Globe className="w-4 h-4 text-gray-400" /> Geographic
+              </h3>
+              <div className="space-y-2">
+                {countryList.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between py-2">
+                    <div className="flex items-center gap-3">
+                      {getFlag(item.code) ? (
+                        <img
+                          src={getFlag(item.code)}
+                          alt={item.name}
+                          className="w-5 h-4 rounded-sm object-cover border"
+                        />
+                      ) : (
+                        <div className="w-5 h-4 bg-gray-200 rounded-sm flex items-center justify-center">
+                           <span className="text-[10px] grayscale">{item.code === "LOCAL" ? "🏠" : "🏳️"}</span>
+                        </div>
+                      )}
+                      <span className="text-sm text-gray-700">
+                        {item.name}
+                      </span>
+                    </div>
+
+                    <span className="text-sm font-medium text-gray-900 tabular-nums">
+                      {Number(item.value || 0)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* TABLES GRID */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <section className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm overflow-hidden">
+              <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-400" /> Top Performing Pages
+              </h2>
+              <VisitedPagesCard pages={data.tables?.pages} loading={loading} />
+            </section>
+
+            <section className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
+              <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-indigo-400" /> Live Events Feed
+              </h2>
+              <LiveFeed siteId={siteId} />
+            </section>
+          </div>
+
+          {/* LIVE USERS DETAIL - LIGHT VERSION */}
+          <section className="bg-white border border-gray-200 rounded-3xl p-8 shadow-sm">
+             <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900 flex items-center gap-3">
+                    <Users className="w-5 h-5 text-emerald-500" />
+                    Real-time Active Users
+                  </h2>
+                  <p className="text-gray-400 text-xs mt-1">Instant updates of currently browsing sessions</p>
+                </div>
+                <div className="px-3 py-1 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center">
+                  <span className="text-emerald-600 text-sm font-bold">{data.stats?.activeUsers}</span>
+                  <span className="text-emerald-400 text-[10px] ml-2 uppercase font-black tracking-widest">Online</span>
+                </div>
+             </div>
+             <LiveUsers siteId={siteId} />
+          </section>
+        </div>
+      )}
+
+      {/* SCRIPT MODAL */}
+      <ScriptModal
+        isOpen={showScript}
+        onClose={() => setShowScript(false)}
+        scriptData={{
+          script: site
+            ? `<script defer data-site-id="${site.siteId}" src="${window.location.origin.replace(':3000', ':5000')}/tracker.js"></script>`
+            : ""
+        }}
+        socketConnected={socketConnected}
+        site={site}
+      />
     </div>
   );
 }
-
-/* ───────────────────────────────────────────────
-   STAT CARD
-─────────────────────────────────────────────── */
-const Stat = ({ label, value }) => {
-  const displayValue = value ?? 0;
-
-  return (
-    <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all duration-200 group">
-
-      <p className="text-[10px] sm:text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-slate-600 transition-colors">
-        {label}
-      </p>
-
-      <h3 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 sm:mt-2 tabular-nums">
-        {displayValue}
-      </h3>
-
-      {/* 🔥 subtle bottom accent */}
-      <div className="h-[2px] mt-3 bg-gradient-to-r from-indigo-500/0 via-indigo-500/40 to-indigo-500/0 opacity-0 group-hover:opacity-100 transition" />
-
-    </div>
-  );
-};
-/* ───────────────────────────────────────────────
-   DATA CARD (Vercel-style Boxed Panel)
-─────────────────────────────────────────────── */
-const DataCard = ({ title, data = [], type }) => {
-  const regionNames = useMemo(
-    () => new Intl.DisplayNames(["en"], { type: "region" }),
-    []
-  );
-
-  const safeData = Array.isArray(data) ? data : [];
-
-  const formatLabel = (label) => {
-    if (!label) return "Unknown";
-
-    if (type === "country") {
-      try {
-        return regionNames.of(String(label).toUpperCase()) || label;
-      } catch {
-        return label;
-      }
-    }
-
-    return label;
-  };
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
-
-      {/* ===== HEADER ===== */}
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-          Visitors
-        </span>
-      </div>
-
-      {/* ===== BODY ===== */}
-      <div className="p-5 max-h-[280px] overflow-y-auto">
-
-        {safeData.length > 0 ? (
-          <div className="space-y-1">
-
-            {safeData.map((item, i) => (
-              <div
-                key={item?._id || i}
-                className="flex justify-between items-center text-sm py-2 group/row hover:bg-gray-50 rounded-lg px-2 transition"
-              >
-                <span className="truncate max-w-[70%] text-gray-700 font-medium">
-                  {formatLabel(item?._id)}
-                </span>
-
-                <span className="font-semibold text-gray-900 tabular-nums">
-                  {(item?.count ?? 0).toLocaleString()}
-                </span>
-              </div>
-            ))}
-
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <p className="text-sm text-gray-400 font-medium">
-              No data available
-            </p>
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
-};
-/* ───────────────────────────────────────────────
-   PAGES CARD (Vercel-style Boxed Panel)
-─────────────────────────────────────────────── */
-const PagesCard = ({ data = [] }) => {
-  const safeData = Array.isArray(data) ? data : [];
-
-  const formatPath = (path) => {
-    if (!path) return "/";
-    return path.startsWith("/") ? path : `/${path}`;
-  };
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
-
-      {/* ===== HEADER ===== */}
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900">
-          Most Visited Pages
-        </h3>
-        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-          Views
-        </span>
-      </div>
-
-      {/* ===== BODY ===== */}
-      <div className="p-5 max-h-[280px] overflow-y-auto">
-
-        {safeData.length > 0 ? (
-          <div className="space-y-1">
-
-            {safeData.map((item, i) => (
-              <div
-                key={item?._id || i}
-                className="flex justify-between items-center text-sm py-2 px-2 rounded-lg hover:bg-gray-50 transition"
-              >
-                <span className="truncate max-w-[70%] text-gray-600 font-medium hover:text-indigo-600 cursor-pointer transition-colors">
-                  {formatPath(item?._id)}
-                </span>
-
-                <span className="font-semibold text-gray-900 tabular-nums">
-                  {(item?.count ?? 0).toLocaleString()}
-                </span>
-              </div>
-            ))}
-
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <p className="text-sm text-gray-400 font-medium">
-              No page views yet
-            </p>
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
-};

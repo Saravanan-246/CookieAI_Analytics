@@ -2,9 +2,9 @@ const mongoose = require("mongoose");
 
 const sessionSchema = new mongoose.Schema(
   {
-    /* ---------- SAAS IDENTIFIERS ---------- */
+    /* ================= IDENTIFIERS ================= */
     siteId: {
-      type: String, // 🔥 FIXED: Use String for consistency
+      type: String,
       required: true,
       index: true,
     },
@@ -17,20 +17,19 @@ const sessionSchema = new mongoose.Schema(
     },
 
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      type: String,
       index: true,
     },
 
-    /* ---------- SESSION INFO ---------- */
     sessionId: {
       type: String,
       required: true,
-      index: true,
     },
 
-    /* ---------- USER CONTEXT ---------- */
-    ip: String,
+    /* ================= USER CONTEXT ================= */
+    ip: {
+      type: String,
+    },
 
     device: {
       type: String,
@@ -49,7 +48,7 @@ const sessionSchema = new mongoose.Schema(
 
     city: String,
 
-    /* ---------- SESSION TRACKING ---------- */
+    /* ================= SESSION TRACK ================= */
     startTime: {
       type: Date,
       default: Date.now,
@@ -58,7 +57,6 @@ const sessionSchema = new mongoose.Schema(
     lastSeen: {
       type: Date,
       default: Date.now,
-      // ❌ REMOVED index:true (duplicate)
     },
 
     duration: {
@@ -76,29 +74,86 @@ const sessionSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    lastPath: String,
   },
   {
     timestamps: true,
   }
 );
 
-/* ---------- INDEXES ---------- */
+/* ================= INDEXES ================= */
 
-// 🔥 unique session per site
-sessionSchema.index({ siteId: 1, sessionId: 1 }, { unique: true });
+/* 🔥 unique user session per site (CRITICAL for cross-tab) */
+sessionSchema.index(
+  { siteId: 1, userId: 1 },
+  { unique: true }
+);
 
-// 🔥 fast active users query
-sessionSchema.index({ siteId: 1, isActive: 1, lastSeen: -1 });
+/* 🔥 active users (REALTIME DASHBOARD) */
+sessionSchema.index(
+  { siteId: 1, isActive: 1, lastSeen: -1 }
+);
 
-// 🔥 analytics queries
+/* 🔥 analytics filters */
 sessionSchema.index({ siteId: 1, country: 1 });
 sessionSchema.index({ siteId: 1, device: 1 });
 
-/* ---------- TTL CLEANUP ---------- */
-// 🔥 auto delete after 1 day inactivity
+
+/* ================= TTL CLEANUP ================= */
+/* 🔥 auto delete inactive sessions after 24h */
 sessionSchema.index(
   { lastSeen: 1 },
-  { expireAfterSeconds: 60 * 60 * 24 * 1 }
+  {
+    expireAfterSeconds: 60 * 60 * 24,
+    partialFilterExpression: { isActive: false } // ✅ only inactive sessions
+  }
 );
+
+/* ================= PRE SAVE HOOK ================= */
+/* 🔥 auto update duration */
+sessionSchema.pre("save", function (next) {
+  if (this.startTime && this.lastSeen) {
+    this.duration = Math.floor(
+      (this.lastSeen - this.startTime) / 1000
+    );
+  }
+  next();
+});
+
+/* ================= STATIC HELPERS ================= */
+/* 🔥 safe upsert (HIGH LOAD SAFE) */
+sessionSchema.statics.upsertSession = async function (data) {
+  const {
+    siteId,
+    sessionId,
+    device,
+    browser,
+    os,
+    country,
+    isActive = true,
+  } = data;
+
+  const now = new Date();
+
+  return this.updateOne(
+    { siteId, sessionId },
+    {
+      $set: {
+        lastSeen: now,
+        device,
+        browser,
+        os,
+        country,
+        isActive,
+      },
+      $setOnInsert: {
+        startTime: now,
+        pageCount: 1,
+      },
+      $inc: { pageCount: 1 },
+    },
+    { upsert: true }
+  );
+};
 
 module.exports = mongoose.model("Session", sessionSchema);

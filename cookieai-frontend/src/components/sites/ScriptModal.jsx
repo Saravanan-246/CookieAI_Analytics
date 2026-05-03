@@ -1,143 +1,164 @@
 import { useState, useEffect } from "react";
-import { Copy, Check, Eye, EyeOff, Code2, Terminal } from "lucide-react";
+import {
+  Copy,
+  Check,
+  Terminal,
+  Code2,
+  X,
+  Sparkles,
+  RefreshCw,
+  ArrowRight
+} from "lucide-react";
 import Modal from "../ui/Modal";
 
-const ScriptModal = ({ isOpen, onClose, scriptData, loading }) => {
+const ScriptModal = ({
+  isOpen,
+  onClose,
+  loading,
+  socketConnected,
+  site,
+  onCheckStatus
+}) => {
   const [copied, setCopied] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [checking, setChecking] = useState(false);
 
-  // Reset states when modal closes
   useEffect(() => {
     if (!isOpen) {
       setCopied(false);
-      setShowAdvanced(false);
+      setChecking(false);
     }
   }, [isOpen]);
 
-  const handleCopy = async () => {
-    const textToCopy = scriptData?.script;
-    if (!textToCopy) return;
+  /* ================= LOGIC PRESERVED ================= */
+  const TRACKER_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+  const siteId = site?.siteId || "";
+  const script = siteId
+    ? `<script defer data-site-id="${siteId}" src="${TRACKER_BASE}/tracker.js"></script>`
+    : "Generating script...";
 
+  const isScriptReady = script && script !== "Generating script...";
+  const isLive = Boolean(socketConnected || site?.installed);
+
+  const handleCopy = async () => {
+    if (!isScriptReady) return;
     try {
-      await navigator.clipboard.writeText(textToCopy);
+      await navigator.clipboard.writeText(script);
       setCopied(true);
-      // Revert icon after 2 seconds
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
+    } catch {
+      console.warn("Copy failed");
     }
+  };
+
+  const handleCheck = () => {
+    setChecking(true);
+    onCheckStatus?.();
+    setTimeout(() => setChecking(false), 1500);
   };
 
   if (loading) {
     return (
-      <Modal isOpen={isOpen} onClose={onClose} title="Embed Tracking Script">
-        <div className="animate-pulse space-y-4 p-4">
-          <div className="h-4 bg-slate-200 rounded w-3/4" />
-          <div className="h-32 bg-slate-100 rounded-lg" />
+      <Modal isOpen={isOpen} onClose={onClose}>
+        <div className="p-16 flex flex-col items-center justify-center">
+          <div className="w-12 h-12 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
         </div>
       </Modal>
     );
   }
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Embed Tracking Script">
-      <div className="max-w-2xl space-y-6 antialiased">
-        
-        {/* --- Header Section --- */}
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0 p-2 bg-blue-50 rounded-lg">
-            <Code2 className="w-5 h-5 text-blue-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Add tracking to your website</h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Insert this snippet into the <code className="bg-slate-100 px-1 rounded text-blue-700 font-mono">&lt;head&gt;</code> section of your HTML.
-            </p>
-          </div>
+return (
+  <Modal isOpen={isOpen} onClose={onClose}>
+    <div className="relative p-6">
+
+      {/* CLOSE */}
+      <button
+        onClick={onClose}
+        className="absolute right-4 top-4 p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition"
+      >
+        <X className="w-5 h-5" />
+      </button>
+
+      {/* HEADER */}
+      <div className="mb-8">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-50 border border-violet-100 mb-4">
+          <Sparkles className="w-4 h-4 text-violet-600" />
+          <span className="text-xs font-bold text-violet-700 uppercase">
+            Quick Setup
+          </span>
         </div>
 
-        {/* --- Modern Code Block (The "GPT" Style) --- */}
-        <div className="relative group rounded-xl border border-slate-700 bg-[#0d1117] overflow-hidden shadow-2xl">
-          {/* Header Bar */}
-          <div className="flex items-center justify-between px-4 py-2 bg-[#161b22] border-b border-slate-700">
-            <div className="flex items-center gap-2">
-              <Terminal size={14} className="text-slate-400" />
-              <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">javascript</span>
-            </div>
-            
-            <button
-              onClick={handleCopy}
-              className={`
-                flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200
-                ${copied 
-                  ? "text-emerald-400 bg-emerald-400/10" 
-                  : "text-slate-300 hover:text-white hover:bg-slate-700"
-                }
-              `}
-            >
-              {copied ? (
-                <>
-                  <Check size={14} className="animate-in zoom-in duration-300" />
-                  <span>Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={14} />
-                  <span>Copy code</span>
-                </>
-              )}
-            </button>
-          </div>
+        <h2 className="text-2xl font-bold text-gray-900">
+          Install Tracking Script
+        </h2>
 
-          {/* Script Content */}
-          <div className="p-4 overflow-x-auto custom-scrollbar">
-            <pre className="text-sm font-mono leading-relaxed">
-              <code className="text-emerald-400">
-                {scriptData?.script || "// No script generated"}
-              </code>
-            </pre>
-          </div>
-        </div>
-
-        {/* --- Metadata Row --- */}
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-tight">Site ID</span>
-          <code className="text-sm font-mono text-slate-800 bg-white border border-slate-200 px-2 py-0.5 rounded shadow-sm">
-            {scriptData?.siteId}
-          </code>
-        </div>
-
-        {/* --- Advanced Toggle --- */}
-        <div className="border-t border-slate-100 pt-4">
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-widest"
-          >
-            {showAdvanced ? <EyeOff size={14} /> : <Eye size={14} />}
-            {showAdvanced ? "Hide Details" : "Advanced View"}
-          </button>
-
-          {showAdvanced && (
-            <div className="mt-4 p-4 rounded-lg bg-slate-50 border border-dashed border-slate-300 animate-in slide-in-from-top-2 duration-300">
-              <p className="text-[11px] text-slate-500 leading-relaxed italic">
-                This script uses <span className="font-bold">defer</span> to ensure zero impact on your site's loading speed. 
-                Data is sent over a secure SSL connection and is privacy-compliant by default.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* --- Status Message --- */}
-        <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-4 flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-          <p className="text-xs text-blue-800 font-medium">
-            Waiting for first visit... Your dashboard will update automatically.
-          </p>
-        </div>
-
+        <p className="text-gray-500 text-sm mt-2">
+          Paste this inside your{" "}
+          <code className="bg-gray-100 px-1.5 py-0.5 rounded text-violet-600 text-xs font-semibold">
+            &lt;head&gt;
+          </code>{" "}
+          tag
+        </p>
       </div>
-    </Modal>
-  );
+
+      {/* CODE BOX */}
+      <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+        
+        {/* TOP BAR */}
+        <div className="flex justify-between items-center px-4 py-2 bg-gray-50 border-b">
+          <span className="text-xs text-gray-500 font-mono">
+            tracker.js
+          </span>
+
+          <button
+            onClick={handleCopy}
+            className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition ${
+              copied
+                ? "bg-green-500 text-white"
+                : "bg-gray-900 text-white hover:bg-black"
+            }`}
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+
+        {/* CODE */}
+        <pre className="p-4 text-sm font-mono bg-black text-green-400 overflow-x-auto">
+{script}
+        </pre>
+      </div>
+
+      {/* STATUS */}
+      <div className="flex items-center justify-between mt-6">
+
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              isLive ? "bg-green-500 animate-pulse" : "bg-gray-300"
+            }`}
+          />
+          {isLive ? "Live tracking active" : "Waiting for visit"}
+        </div>
+
+        {!isLive ? (
+          <button
+            onClick={handleCheck}
+            className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-lg font-semibold transition"
+          >
+            {checking ? "Checking..." : "Check"}
+          </button>
+        ) : (
+          <button
+            onClick={onClose}
+            className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg font-semibold transition"
+          >
+            Done
+          </button>
+        )}
+      </div>
+
+    </div>
+  </Modal>
+);
 };
 
 export default ScriptModal;

@@ -2,7 +2,11 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 
-/* ---------- SCHEMA ---------- */
+/* ================= CONSTANTS ================= */
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCK_TIME = 2 * 60 * 60 * 1000; // 2 hours
+
+/* ================= SCHEMA ================= */
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -20,7 +24,6 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [/^\S+@\S+\.\S+$/, "Invalid email"],
-      index: true,
     },
 
     password: {
@@ -34,16 +37,19 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ["user", "admin"],
       default: "user",
+      index: true,
     },
 
     isActive: {
       type: Boolean,
       default: true,
+      index: true,
     },
 
     isDeleted: {
       type: Boolean,
       default: false,
+      index: true,
     },
 
     emailVerified: {
@@ -55,15 +61,16 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
+      maxlength: 100,
     },
 
     lastLogin: Date,
 
-    /* 🔥 FORGOT PASSWORD SUPPORT */
+    /* 🔐 PASSWORD RESET */
     resetPasswordToken: String,
     resetPasswordExpires: Date,
 
-    /* 🔥 SECURITY TRACKING */
+    /* 🔒 SECURITY */
     loginAttempts: {
       type: Number,
       default: 0,
@@ -76,20 +83,21 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-/* ---------- PASSWORD HASH ---------- */
+/* ================= PASSWORD HASH (FIXED) ================= */
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
 
-  const salt = await bcrypt.genSalt(10);
+  const salt = await bcrypt.genSalt(12);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-/* ---------- PASSWORD COMPARE ---------- */
+/* ================= PASSWORD COMPARE ================= */
 userSchema.methods.comparePassword = async function (candidatePassword) {
+  if (!this.password) return false;
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-/* ---------- GENERATE RESET TOKEN ---------- */
+/* ================= RESET TOKEN ================= */
 userSchema.methods.createPasswordResetToken = function () {
   const resetToken = crypto.randomBytes(32).toString("hex");
 
@@ -98,23 +106,58 @@ userSchema.methods.createPasswordResetToken = function () {
     .update(resetToken)
     .digest("hex");
 
-  this.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 mins
+  this.resetPasswordExpires = Date.now() + 15 * 60 * 1000;
 
-  return resetToken; // send this to user
+  return resetToken;
 };
 
-/* ---------- CLEAR RESET TOKEN ---------- */
 userSchema.methods.clearResetToken = function () {
   this.resetPasswordToken = undefined;
   this.resetPasswordExpires = undefined;
 };
 
-/* ---------- ACCOUNT LOCK CHECK ---------- */
+/* ================= ACCOUNT LOCK ================= */
 userSchema.methods.isLocked = function () {
   return this.lockUntil && this.lockUntil > Date.now();
 };
 
-/* ---------- SAFE OUTPUT ---------- */
+/* ================= LOGIN ATTEMPTS ================= */
+userSchema.methods.incLoginAttempts = async function () {
+  if (this.lockUntil && this.lockUntil < Date.now()) {
+    this.loginAttempts = 1;
+    this.lockUntil = undefined;
+    return this.save();
+  }
+
+  this.loginAttempts += 1;
+
+  if (this.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+    this.lockUntil = Date.now() + LOCK_TIME;
+  }
+
+  return this.save();
+};
+
+userSchema.methods.resetLoginAttempts = async function () {
+  this.loginAttempts = 0;
+  this.lockUntil = undefined;
+  return this.save();
+};
+
+/* ================= SAFE LOGIN CHECK ================= */
+userSchema.methods.canLogin = function () {
+  return this.isActive && !this.isDeleted && !this.isLocked();
+};
+
+/* ================= LOGIN SUCCESS ================= */
+userSchema.methods.markLoginSuccess = async function () {
+  this.loginAttempts = 0;
+  this.lockUntil = undefined;
+  this.lastLogin = new Date();
+  return this.save();
+};
+
+/* ================= SAFE OUTPUT ================= */
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
 
@@ -125,5 +168,8 @@ userSchema.methods.toJSON = function () {
 
   return obj;
 };
+
+/* ================= INDEXES ================= */
+userSchema.index({ isActive: 1, isDeleted: 1 });
 
 module.exports = mongoose.model("User", userSchema);

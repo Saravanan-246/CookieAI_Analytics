@@ -1,388 +1,273 @@
 const Event = require("../models/event.model");
 const Session = require("../models/session.model");
+const Visit = require("../models/visit.model");
 const Site = require("../models/site.model");
-
 const mongoose = require("mongoose");
+const { emitAnalyticsUpdate } = require("../socket");
 
 const validateSiteExists = async (siteId) => {
-  let site = null;
-
-  // 🔥 if valid Mongo ObjectId
-  if (mongoose.Types.ObjectId.isValid(siteId)) {
-    site = await Site.findOne({
-      _id: siteId,
-      isDeleted: false,
-    }).lean();
-  }
-
-  // 🔥 fallback: custom siteId
-  if (!site) {
-    site = await Site.findOne({
-      siteId: siteId,
-      isDeleted: false,
-    }).lean();
-  }
-
-  return site || null;
-};
-
-const formatMap = (arr = []) => {
-  const obj = {};
-  arr.forEach((i) => {
-    if (i?._id) obj[i._id] = i.count;
-  });
-  return obj;
-};
-
-const buildTimeFilter = (gteDate) => {
-  const dateObj = gteDate instanceof Date ? gteDate : new Date(gteDate);
-  return {
-    $or: [{ timestamp: { $gte: dateObj } }, { time: { $gte: dateObj } }],
-  };
-};
-
-const buildTimeRangeFilter = (gteDate, ltDate) => {
-  const dGte = gteDate instanceof Date ? gteDate : new Date(gteDate);
-  const dLt = ltDate instanceof Date ? ltDate : new Date(ltDate);
-
-  return {
-    $or: [
-      { timestamp: { $gte: dGte, $lt: dLt } },
-      { time: { $gte: dGte, $lt: dLt } },
-    ],
-  };
-};
-
-const calculateSummary = async (siteId, range = "7d", environment = "all") => {
   try {
-    const site = await validateSiteExists(siteId);
-    if (!site) return emptySummary();
-
-    /* ---------- TIME ---------- */
-    const rangeMap = {
-      "24h": 24 * 60 * 60 * 1000,
-      "7d": 7 * 24 * 60 * 60 * 1000,
-      "30d": 30 * 24 * 60 * 60 * 1000,
-    };
-
-    const duration = rangeMap[range] || rangeMap["7d"];
-    const now = Date.now();
-
-    const envFilter =
-      environment && environment !== "all" ? { environment } : {};
-
-    const siteIdStr = site.siteId || String(site._id);
-
-    /* ---------- FILTERS ---------- */
-    const currentFilter = {
-      siteId: siteIdStr,
-      ...buildTimeFilter(new Date(now - duration)),
-      ...envFilter,
-    };
-
-    const prevEventFilter = {
-      siteId: siteIdStr,
-      ...buildTimeRangeFilter(
-        new Date(now - 2 * duration),
-        new Date(now - duration)
-      ),
-      ...envFilter,
-    };
-
-    const sessionFilter = {
-      siteId: siteIdStr,
-      lastSeen: { $gte: new Date(now - duration) },
-      ...envFilter,
-    };
-
-    const prevSessionFilter = {
-      siteId: siteIdStr,
-      lastSeen: {
-        $gte: new Date(now - 2 * duration),
-        $lt: new Date(now - duration),
-      },
-      ...envFilter,
-    };
-
-    console.log("🔍 FILTER:", JSON.stringify(currentFilter));
-
-    /* ---------- ONLY PAGE VIEW ---------- */
-    const eventMatchFilter = {
-      ...currentFilter,
-      type: "page_view", // 🔥 KEY FIX
-    };
-
-    /* ---------- GROWTH ---------- */
-    const [currVisitors, prevVisitors, currViews, prevViews] =
-      await Promise.all([
-        Session.countDocuments(sessionFilter),
-        Session.countDocuments(prevSessionFilter),
-
-        Event.countDocuments(eventMatchFilter),
-
-        Event.countDocuments({
-          ...prevEventFilter,
-          type: "page_view",
-        }),
-      ]);
-
-    const calcGrowth = (curr, prev) =>
-      prev ? Math.round(((curr - prev) / prev) * 100) : 0;
-
-    /* ---------- AGGREGATIONS ---------- */
- const [
-  activeUsers,
-  devices,
-  traffic,
-  sessionsAgg,
-  topPages,
-  topCountries,
-  os,
-] = await Promise.all([
-
-  /* ---------- ACTIVE USERS ---------- */
-  Session.countDocuments({
-    siteId: siteIdStr,
-    isActive: true,
-    lastSeen: { $gte: new Date(Date.now() - 5 * 60 * 1000) },
-    ...envFilter,
-  }),
-
-  /* ---------- DEVICES (SESSION BASED) ---------- */
-  Session.aggregate([
-    { $match: sessionFilter },
-    {
-      $group: {
-        _id: "$device",
-        count: { $sum: 1 },
-      },
-    },
-  ]),
-
-  /* ---------- TRAFFIC (FIXED 🔥) ---------- */
-  Event.aggregate([
-    { $match: eventMatchFilter },
-    {
-      $group: {
-        _id: {
-          $dateToString: {
-            format: "%H:%M", // 🔥 IMPORTANT FIX
-            date: {
-              $ifNull: ["$timestamp", { $toDate: "$time" }],
-            },
-          },
-        },
-        visits: { $sum: 1 },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]),
-
-  /* ---------- SESSION STATS ---------- */
-  Session.aggregate([
-    { $match: sessionFilter },
-    {
-      $group: {
-        _id: null,
-        totalDuration: {
-          $sum: {
-            $subtract: ["$lastSeen", "$createdAt"],
-          },
-        },
-        totalPageCount: { $sum: "$pageCount" },
-        count: { $sum: 1 },
-        bounces: {
-          $sum: {
-            $cond: [{ $eq: ["$pageCount", 1] }, 1, 0],
-          },
-        },
-      },
-    },
-  ]),
-
-  /* ---------- TOP PAGES ---------- */
-  Event.aggregate([
-    {
-      $match: {
-        ...eventMatchFilter,
-        path: { $exists: true, $ne: "" },
-      },
-    },
-    {
-      $project: {
-        cleanPath: {
-          $arrayElemAt: [{ $split: ["$path", "?"] }, 0],
-        },
-      },
-    },
-    {
-      $group: {
-        _id: "$cleanPath",
-        count: { $sum: 1 },
-      },
-    },
-    { $sort: { count: -1 } },
-    { $limit: 10 },
-  ]),
-
-  /* ---------- COUNTRIES (FIXED 🔥 SESSION BASED) ---------- */
-  Session.aggregate([
-    { $match: sessionFilter },
-    {
-      $group: {
-        _id: "$country",
-        count: { $sum: 1 },
-      },
-    },
-    { $sort: { count: -1 } },
-    { $limit: 10 },
-  ]),
-
-  /* ---------- OS (SESSION BASED) ---------- */
-  Session.aggregate([
-    { $match: sessionFilter },
-    {
-      $group: {
-        _id: "$os",
-        count: { $sum: 1 },
-      },
-    },
-  ]),
-]);
-
-/* ---------- SAFE DEFAULT ---------- */
-const stats = sessionsAgg[0] || {
-  totalDuration: 0,
-  totalPageCount: 0,
-  count: 0,
-  bounces: 0,
+    if (!siteId || typeof siteId !== "string") return null;
+    const baseQuery = { isDeleted: false };
+    if (mongoose.Types.ObjectId.isValid(siteId)) {
+      const site = await Site.findOne({ ...baseQuery, _id: siteId }).select("siteId _id").lean();
+      if (site) return site;
+    }
+    return await Site.findOne({ ...baseQuery, siteId }).select("siteId _id").lean();
+  } catch (err) { return null; }
 };
 
-const totalSessions = stats.count;
-    return {
-      totalVisitors: currVisitors,
-      visitorGrowth: calcGrowth(currVisitors, prevVisitors),
-
-      totalPageViews: currViews,
-      viewGrowth: calcGrowth(currViews, prevViews),
-
-      totalSessions,
-      activeUsers,
-
-      avgSessionDuration: totalSessions
-        ? stats.totalDuration / totalSessions / 1000
-        : 0,
-
-      bounceRate: totalSessions
-        ? Math.round((stats.bounces / totalSessions) * 100)
-        : 0,
-
-      avgPagesPerSession: totalSessions
-        ? Number((stats.totalPageCount / totalSessions).toFixed(1))
-        : 0,
-
-      devices,
-      traffic,
-      topPages,
-      topCountries,
-      os,
-    };
-  } catch (error) {
-    console.error("SUMMARY ERROR:", error);
-    return emptySummary();
-  }
-};
-
-/* ---------- EMPTY ---------- */
-const emptySummary = () => ({
-  totalVisitors: 0,
-  visitorGrowth: 0,
-  totalPageViews: 0,
-  viewGrowth: 0,
-  totalSessions: 0,
-  activeUsers: 0,
-  avgSessionDuration: 0,
-  bounceRate: 0,
-  avgPagesPerSession: 0,
-  devices: [],
-  traffic: [],
-  topPages: [],
-  topCountries: [],
-  os: [],
-});
-
-exports.calculateSummary = calculateSummary;
-
-/* ===================================================== */
-/* 🔥 SUMMARY API */
-/* ===================================================== */
+/* ================= SUMMARY API ================= */
 exports.getSummary = async (req, res) => {
   try {
-    const { siteId, range = "7d", environment = "all" } = req.query;
-
-    if (!siteId) {
-      return res.status(400).json({ success: false, message: "siteId required" });
-    }
-
-    const summary = await calculateSummary(siteId, range, environment);
-    
- if (!summary) {
-  return res.json({
-    success: true,
-    totalVisitors: 0,
-    visitorGrowth: 0,
-    totalPageViews: 0,
-    viewGrowth: 0,
-    totalSessions: 0,
-    activeUsers: 0,
-    avgSessionDuration: 0,
-    bounceRate: 0,
-    avgPagesPerSession: 0,
-    devices: [],
-    traffic: [],
-    topPages: [],
-    topCountries: [],
-    os: [],
-    sessions: []
-  });
-}
-
-    return res.json({
-      success: true,
-      ...summary
-    });
-  } catch (err) {
-    console.error("SUMMARY ERROR:", err);
-    return res.status(500).json({ success: false });
-  }
-};
-
-/* ===================================================== */
-/* 🔥 CLEAR ANALYTICS DATA */
-/* ===================================================== */
-exports.clearAnalytics = async (req, res) => {
-  try {
     const { siteId } = req.query;
+    if (!siteId) return res.status(400).json({ success: false, message: "siteId required" });
 
-    if (!siteId) {
-      return res.status(400).json({ success: false, message: "siteId required" });
-    }
+    const site = await validateSiteExists(siteId);
+    if (!site) return res.status(404).json({ success: false, message: "Site not found" });
 
-    // 🔥 Ensure siteId is a string for matching stored data
-    const filterSiteId = String(siteId);
+    const realSiteId = site.siteId;
 
-    // Delete all analytics data for the site
-    await Promise.all([
-      Event.deleteMany({ siteId: filterSiteId }),
-      Session.deleteMany({ siteId: filterSiteId }),
+    const [
+      totalPageViews,
+      totalSessions,
+      uniqueVisitors,
+      activeUsers,
+      devicesRaw,
+      browsersRaw,
+      countriesRaw,
+      pagesRaw
+    ] = await Promise.all([
+      Visit.countDocuments({ siteId: realSiteId }),      // 🔥 FROM VISIT
+      Session.countDocuments({ siteId: realSiteId }),
+      Event.distinct("sessionId", { siteId: realSiteId }), // 🔥 FROM EVENT (Unique Visitors)
+      Session.countDocuments({
+        siteId: realSiteId,
+        isActive: true,
+        lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
+      }),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", device: { $first: "$device" } } },
+        { $group: { _id: "$device", count: { $sum: 1 } } }
+      ]), // 🔥 FROM VISIT
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$browser", count: { $sum: 1 } } }]), // 🔥 FROM VISIT
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }]), // 🔥 FROM VISIT
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $group: { _id: "$path", visitorsSet: { $addToSet: "$sessionId" }, pageViews: { $sum: 1 } } },
+        { $project: { _id: 1, visitors: { $size: "$visitorsSet" }, pageViews: 1 } },
+        { $sort: { pageViews: -1 } },
+        { $limit: 10 }
+      ])
     ]);
 
     return res.json({
       success: true,
-      message: "Analytics data cleared successfully",
+      siteId: realSiteId,
+      stats: {
+        pageViews: totalPageViews,
+        sessions: totalSessions,
+        visitors: uniqueVisitors.length,
+        activeUsers: activeUsers,
+      },
+      installed: totalPageViews > 0,
+      hasData: totalPageViews > 0,
+      charts: {
+        devices: devicesRaw.map(d => ({ name: d._id || "Unknown", value: d.count })),
+        browsers: browsersRaw.map(b => ({ name: b._id || "Unknown", value: b.count })),
+        countries: countriesRaw.map(c => ({ name: c._id || "Unknown", value: c.count }))
+      },
+      tables: { pages: pagesRaw.map(p => ({ path: p._id || "/", visitors: p.visitors, pageViews: p.pageViews })) }
     });
   } catch (err) {
-    console.error("CLEAR ANALYTICS ERROR:", err);
-    return res.status(500).json({ success: false, message: "Failed to clear analytics" });
+    res.status(500).json({ success: false, error: err.message });
   }
+};
+
+/* ================= INTERNAL CALCULATE SUMMARY ================= */
+const calculateSummary = async (siteId) => {
+  try {
+    const site = await validateSiteExists(siteId);
+    if (!site) return null;
+
+    const realSiteId = site.siteId;
+    const startTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      totalPageViews,
+      totalSessions,
+      uniqueVisitors,
+      activeUsers,
+      devicesRaw,
+      browsersRaw,
+      countriesRaw,
+      topPagesRaw
+    ] = await Promise.all([
+      Visit.countDocuments({ siteId: realSiteId, time: { $gte: startTime } }),
+      Session.countDocuments({ siteId: realSiteId }),
+      Event.distinct("sessionId", { siteId: realSiteId }),
+      Session.countDocuments({
+        siteId: realSiteId,
+        isActive: true,
+        lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
+      }),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", device: { $first: "$device" } } },
+        { $group: { _id: "$device", count: { $sum: 1 } } }
+      ]),
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$browser", count: { $sum: 1 } } }]),
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }]),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId, time: { $gte: startTime } } },
+        { $group: { _id: "$path", visitorsSet: { $addToSet: "$sessionId" }, pageViews: { $sum: 1 } } },
+        { $project: { _id: 1, visitors: { $size: "$visitorsSet" }, pageViews: 1 } },
+        { $sort: { pageViews: -1 } },
+        { $limit: 10 }
+      ])
+    ]);
+
+    return {
+      stats: {
+        visitors: uniqueVisitors.length,
+        sessions: totalSessions,
+        pageViews: totalPageViews,
+        activeUsers: activeUsers
+      },
+      charts: {
+        devices: devicesRaw.map(d => ({ name: d._id || "Unknown", value: d.count })),
+        browsers: browsersRaw.map(b => ({ name: b._id || "Unknown", value: b.count })),
+        countries: countriesRaw.map(c => ({ name: c._id || "Unknown", value: c.count }))
+      },
+      tables: {
+        pages: topPagesRaw.map(p => ({ path: p._id || "/", visitors: p.visitors, pageViews: p.pageViews }))
+      },
+      updatedAt: new Date(),
+      isRealtime: true
+    };
+  } catch (err) { return null; }
+};
+exports.calculateSummary = calculateSummary;
+
+/* ================= CHARTS API ================= */
+exports.getCharts = async (req, res) => {
+  try {
+    const { siteId, range = "7d" } = req.query;
+    const site = await validateSiteExists(siteId);
+    if (!site) return res.status(404).json({ success: false, message: "Site not found" });
+
+    const realSiteId = site.siteId;
+    const is24h = range === "24h";
+    const startTime = new Date(Date.now() - (is24h ? 24 : 7 * 24) * 60 * 60 * 1000);
+
+    const [trafficRaw, devicesRaw, browsersRaw, countriesRaw] = await Promise.all([
+      Event.aggregate([
+        { $match: { siteId: realSiteId, type: "page_view", timestamp: { $gte: startTime } } },
+        { 
+          $group: { 
+            _id: { $dateToString: { format: is24h ? "%Y-%m-%dT%H:00" : "%b %d", date: "$timestamp" } }, 
+            visitors: { $addToSet: "$sessionId" },
+            sessions: { $sum: 1 } // 🔥 simplified session approximation (can be refined)
+          } 
+        },
+        { $project: { time: "$_id", visitors: { $size: "$visitors" }, sessions: 1 } }
+      ]),
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$device", count: { $sum: 1 } } }]),
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$browser", count: { $sum: 1 } } }]),
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }])
+    ]);
+
+    const now = new Date();
+    const map = new Map(trafficRaw.map(t => [t.time, { v: t.visitors, s: t.sessions }]));
+    const traffic = Array.from({ length: is24h ? 24 : 7 }).map((_, i) => {
+      const d = is24h ? new Date(now.getTime() - (23 - i) * 3600000) : new Date(now.getTime() - (6 - i) * 86400000);
+      const label = is24h ? d.toISOString().slice(0, 13) + ":00" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const entry = map.get(label) || { v: 0, s: 0 };
+      return { time: label, visitors: entry.v, sessions: entry.s };
+    });
+
+    return res.json({
+      success: true, siteId: realSiteId, range, traffic,
+      devices: devicesRaw.map(d => ({ name: d._id || "Unknown", value: d.count })),
+      browsers: browsersRaw.map(b => ({ name: b._id || "Unknown", value: b.count })),
+      countries: countriesRaw.map(c => ({ name: c._id || "Unknown", value: c.count }))
+    });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+};
+
+/* ================= DASHBOARD DATA API ================= */
+exports.getDashboardData = async (req, res) => {
+  try {
+    const { siteId, range = "7d" } = req.query;
+    const site = await validateSiteExists(siteId);
+    if (!site) return res.status(404).json({ success: false, message: "Site not found" });
+
+    const realSiteId = site.siteId;
+    const startTime = new Date(Date.now() - (range === "24h" ? 24 : 7 * 24) * 60 * 60 * 1000);
+
+    const [totalPageViews, totalSessions, uniqueVisitors, activeUsersCount, devicesRaw, countriesRaw] = await Promise.all([
+      Visit.countDocuments({ siteId: realSiteId, time: { $gte: startTime } }),
+      Session.countDocuments({ siteId: realSiteId }),
+      Event.distinct("sessionId", { siteId: realSiteId }),
+      Session.countDocuments({
+        siteId: realSiteId,
+        isActive: true,
+        lastSeen: { $gte: new Date(Date.now() - 2 * 60 * 1000) }
+      }),
+      Visit.aggregate([
+        { $match: { siteId: realSiteId } },
+        { $sort: { time: -1 } },
+        { $group: { _id: "$sessionId", device: { $first: "$device" } } },
+        { $group: { _id: "$device", count: { $sum: 1 } } }
+      ]),
+      Visit.aggregate([{ $match: { siteId: realSiteId } }, { $group: { _id: "$country", count: { $sum: 1 } } }])
+    ]);
+
+    return res.json({
+      success: true, siteId: realSiteId, totalVisitors: uniqueVisitors.length,
+      totalSessions, totalPageViews, activeUsers: activeUsersCount,
+      devices: devicesRaw.map(d => ({ name: d._id || "Unknown", value: d.count })),
+      countries: countriesRaw.map(c => ({ name: c._id || "Unknown", value: c.count })),
+      range, updatedAt: new Date()
+    });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+};
+
+/* ================= EXTRA ================= */
+exports.getPageAnalytics = async (req, res) => {
+  const site = await validateSiteExists(req.params.siteId);
+  if (!site) return res.status(404).json({ success: false, message: "Site not found" });
+  const pages = await Visit.aggregate([
+    { $match: { siteId: site.siteId } },
+    { $group: { _id: "$path", visitorsSet: { $addToSet: "$sessionId" }, pageViews: { $sum: 1 } } },
+    { $project: { _id: 1, visitors: { $size: "$visitorsSet" }, pageViews: 1 } },
+    { $sort: { pageViews: -1 } },
+    { $limit: 10 }
+  ]);
+  res.json({ success: true, data: pages.map(p => ({ path: p._id, visitors: p.visitors, pageViews: p.pageViews })) });
+};
+
+exports.getLiveEvents = async (req, res) => {
+  const site = await validateSiteExists(req.query.siteId);
+  if (!site) return res.status(404).json({ success: false, message: "Site not found" });
+  const events = await Event.find({ siteId: site.siteId }).sort({ timestamp: -1 }).limit(20).lean();
+  res.json({ success: true, data: events.map(e => ({ id: e._id, type: e.type, path: e.path, time: e.timestamp })) });
+};
+
+exports.clearAnalytics = async (req, res) => {
+  if (req.query.confirm !== "true") return res.status(400).json({ success: false, message: "Confirm with ?confirm=true" });
+  const site = await validateSiteExists(req.query.siteId);
+  if (!site) return res.status(404).json({ success: false, message: "Site not found" });
+  await Promise.all([Event.deleteMany({ siteId: site.siteId }), Session.deleteMany({ siteId: site.siteId }), Visit.deleteMany({ siteId: site.siteId })]);
+  res.json({ success: true, message: "Cleared" });
+};
+
+exports.getSetupStatus = async (req, res) => {
+  const site = await validateSiteExists(req.params.siteId);
+  if (!site) return res.status(404).json({ success: false, message: "Site not found" });
+  const [total, views] = await Promise.all([Event.countDocuments({ siteId: site.siteId }), Visit.countDocuments({ siteId: site.siteId })]);
+  res.json({ success: true, installed: total > 0, hasData: views > 0, pageViews: views });
 };

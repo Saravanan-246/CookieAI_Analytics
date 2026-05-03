@@ -1,240 +1,68 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>CookieAI Analytics</title>
-
-  <style>
-    body {
-      margin: 0;
-      font-family: Inter, Arial, sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-    }
-
-    .container {
-      width: 760px;
-      background: #111827;
-      padding: 22px;
-      border-radius: 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-    }
-
-    h2 { margin: 0 0 12px 0; }
-
-    input, button {
-      width: 100%;
-      padding: 12px;
-      border-radius: 10px;
-      border: none;
-      margin-bottom: 10px;
-      font-size: 14px;
-    }
-
-    input { background: #1f2937; color: white; }
-    button { background: #6366f1; color: white; cursor: pointer; }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .card {
-      background: #020617;
-      padding: 12px;
-      border-radius: 10px;
-      font-size: 13px;
-    }
-
-    .title {
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #94a3b8;
-    }
-
-    .live {
-      font-size: 16px;
-      line-height: 1.6;
-    }
-
-    .green { color: #22c55e; }
-    .muted { color: #64748b; font-size: 12px; }
-
-    .list-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 4px 0;
-      border-bottom: 1px solid #0f172a;
-    }
-
-    .bar {
-      height: 6px;
-      border-radius: 4px;
-      background: #1f2937;
-      overflow: hidden;
-      margin-top: 4px;
-    }
-
-    .bar > span {
-      display: block;
-      height: 100%;
-      background: #6366f1;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CookieAI Analytics Test Suite</title>
+    <script defer src="/tracker.js" data-site-id="d784536c61515461"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #0f172a; color: #f1f5f9; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); padding: 2rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); text-align: center; max-width: 500px; }
+        h1 { margin-bottom: 1.5rem; background: linear-gradient(to right, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav { display: flex; gap: 1rem; margin-bottom: 2rem; justify-content: center; }
+        button { padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background: #334155; color: white; cursor: pointer; transition: all 0.2s; }
+        button:hover { background: #475569; transform: translateY(-2px); }
+        button.active { background: #38bdf8; color: #0f172a; font-weight: bold; }
+        #status { font-size: 0.9rem; color: #94a3b8; margin-top: 1rem; }
+    </style>
 </head>
-
 <body>
-
-<div class="container">
-  <h2>📊 CookieAI Analytics</h2>
-
-  <input id="url" type="text" placeholder="Enter website URL..." />
-  <button onclick="scan()">Scan Website</button>
-
-  <div id="overview" class="card"></div>
-
-  <!-- LIVE -->
-  <div class="card">
-    <div class="title">🔥 Live Stats</div>
-    <div id="liveData" class="live">Loading...</div>
-    <div id="lastUpdated" class="muted"></div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <div class="title">📱 Devices</div>
-      <div id="devicesData"></div>
+    <div class="container">
+        <h1>Analytics Test Site</h1>
+        <div class="nav">
+            <button onclick="navigate('/')" id="btn-root">Home</button>
+            <button onclick="navigate('/about')" id="btn-about">About</button>
+            <button onclick="navigate('/contact')" id="btn-contact">Contact</button>
+            <button onclick="navigate('/products')" id="btn-products">Products</button>
+        </div>
+        <div id="content">
+            <h2>Current Page: <span id="page-name">Home</span></h2>
+            <p>This page simulates an SPA to test the CookieAI analytics tracker.</p>
+        </div>
+        <div id="status">Waiting for navigation...</div>
     </div>
 
-    <div class="card">
-      <div class="title">🌍 Countries</div>
-      <div id="countryData"></div>
-    </div>
-  </div>
 
-  <div class="card">
-    <div class="title">📄 Top Pages</div>
-    <div id="pagesData"></div>
-  </div>
-</div>
+    <script>
+        function navigate(path) {
+            console.log("Navigating to:", path);
+            history.pushState({}, "", path);
+            updateUI();
+        }
 
-<script src="/tracker.js" data-site="69ecf05fc52e98011a429ff9"></script>
+        function updateUI() {
+            const path = window.location.pathname;
+            document.getElementById('page-name').innerText = path === '/' ? 'Home' : path.substring(1).charAt(0).toUpperCase() + path.substring(2);
+            
+            // Update active button
+            document.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+            if (path === '/') document.getElementById('btn-root').classList.add('active');
+            else if (path === '/about') document.getElementById('btn-about').classList.add('active');
+            else if (path === '/contact') document.getElementById('btn-contact').classList.add('active');
+            else if (path === '/products') document.getElementById('btn-products').classList.add('active');
 
-<script>
-const SITE_ID = "69ecf05fc52e98011a429ff9";
-let lastTs = Date.now();
+            document.getElementById('status').innerText = "Last Navigation: " + new Date().toLocaleTimeString();
+        }
 
-/* ---------- helpers ---------- */
-const flag = (cc="") => {
-  if (!cc || cc === "Unknown") return "🌐";
-  return cc
-    .toUpperCase()
-    .replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt()));
-};
+        // Handle browser back/forward
+        window.onpopstate = updateUI;
 
-// optional country name map (basic)
-const countryName = {
-  IN: "India",
-  US: "United States",
-  GB: "UK"
-};
-
-const renderList = (obj, withBar=false) => {
-  const entries = Object.entries(obj || {})
-    .sort((a,b)=>b[1]-a[1])
-    .slice(0,6);
-
-  if (!entries.length) return "<span class='muted'>No data</span>";
-
-  const max = entries[0][1] || 1;
-
-  return entries.map(([k,v]) => `
-    <div class="list-row">
-      <span>${k}</span>
-      <span>${v}</span>
-    </div>
-    ${withBar ? `<div class="bar"><span style="width:${(v/max)*100}%"></span></div>` : ``}
-  `).join("");
-};
-
-/* ---------- SCAN ---------- */
-async function scan() {
-  const url = document.getElementById("url").value;
-
-  try {
-    const res = await fetch("http://localhost:5000/api/scan", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ url })
-    });
-
-    const { data } = await res.json();
-
-    document.getElementById("overview").innerHTML = `
-      ⚠️ Risk: <b>${data.level}</b><br>
-      📜 Scripts: ${data.totalScripts}<br>
-      🍪 Cookies: ${data.cookiesDetected}<br>
-      🕵️ Trackers: ${data.trackers.length}
-    `;
-  } catch {
-    document.getElementById("overview").innerText = "Scan failed";
-  }
-}
-
-/* ---------- ANALYTICS ---------- */
-async function loadVisitors() {
-  try {
-    const res = await fetch(
-      `http://localhost:5000/api/analytics/summary?siteId=${SITE_ID}`
-    );
-    const data = await res.json();
-
-    /* LIVE */
-    document.getElementById("liveData").innerHTML = `
-      Visits: <b>${data.totalVisits || 0}</b><br>
-      Sessions: ${data.totalSessions || 0}<br>
-      <span class="green">🟢 Active Now: ${data.activeUsers || 0}</span>
-    `;
-
-    /* DEVICES */
-    document.getElementById("devicesData").innerHTML =
-      renderList(data.devices, true);
-
-    /* COUNTRIES */
-    const countries = {};
-    Object.entries(data.topCountries || {}).forEach(([c,v])=>{
-      const name = countryName[c] || c;
-      countries[`${flag(c)} ${name}`] = v;
-    });
-
-    document.getElementById("countryData").innerHTML =
-      renderList(countries);
-
-    /* PAGES */
-    document.getElementById("pagesData").innerHTML =
-      renderList(data.topPages);
-
-    /* UPDATED TIME */
-    const now = Date.now();
-    const diff = Math.floor((now - lastTs) / 1000);
-
-    document.getElementById("lastUpdated").innerText =
-      `Updated ${diff}s ago`;
-
-    lastTs = now;
-
-  } catch {
-    document.getElementById("liveData").innerText = "Waiting...";
-  }
-}
-
-/* 🔄 AUTO REFRESH */
-setInterval(loadVisitors, 4000);
-loadVisitors();
-</script>
+        // AUTO-SIMULATION (As requested)
+        console.log("Starting auto-simulation in 2s...");
+        setTimeout(() => navigate('/about'), 2000);
+        setTimeout(() => navigate('/contact'), 4000);
+        setTimeout(() => navigate('/products'), 6000);
+        setTimeout(() => navigate('/'), 8000);
+    </script>
 </body>
 </html>

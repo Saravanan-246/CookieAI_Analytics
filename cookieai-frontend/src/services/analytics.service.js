@@ -1,81 +1,67 @@
 import { apiRequest } from "./api";
 
-/* ---------- SERVICE ---------- */
 const analyticsService = {
+  /* ================= SUMMARY ================= */
+  getSummary: async (siteId, range = "7d") => {
+    if (!siteId) return null;
 
-  /* 🔥 MAIN SUMMARY - ONLY SOURCE OF TRUTH */
-  getSummary: async (siteId, range = "7d", env = "all") => {
-    if (!siteId) {
-      throw new Error("siteId required");
-    }
+    const res = await apiRequest.get("/analytics/summary", {
+      params: { siteId, range },
+    });
 
-    try {
-      const params = { siteId, range };
-      if (env && env !== "all") params.env = env;
-
-      const res = await apiRequest.get("/analytics/summary", { params });
-
-      return res?.data || res;
-    } catch (error) {
-      console.error("❌ Summary API error:", error);
-      throw error; // 🔥 IMPORTANT → don't hide errors
-    }
+    return res.data;
   },
 
-  /* ================= LIVE VISITORS ================= */
+  /* ================= DASHBOARD ================= */
+  getDashboard: async (siteId, range = "7d") => {
+    if (!siteId) return null;
+
+    const res = await apiRequest.get("/analytics/dashboard", {
+      params: { siteId, range },
+    });
+
+    return res.data;
+  },
+
+  /* ================= 🔥 CHARTS FIX ================= */
+  getCharts: async (siteId, range = "7d") => {
+    if (!siteId) return null;
+
+    const res = await apiRequest.get("/analytics/charts", {
+      params: { siteId, range },
+    });
+
+    return res.data;
+  },
+
+  /* ================= PAGES ================= */
+  getPageAnalytics: async (siteId) => {
+    const res = await apiRequest.get(`/analytics/pages/${siteId}`);
+    return res.data?.data || [];
+  },
+
+  /* ================= LIVE ================= */
   getLiveVisitors: async (siteId) => {
-    try {
-      const data = await analyticsService.getSummary(siteId);
+    const data = await analyticsService.getSummary(siteId);
 
-      return {
-        total: data?.totalVisitors ?? 0,   // ✅ FIXED
-        active: data?.activeUsers ?? 0,
-        devices: data?.devices ?? {},
-      };
-    } catch (error) {
-      console.error("Live visitors error:", error);
-      return { total: 0, active: 0, devices: {} };
-    }
+    return {
+      total: data?.stats?.visitors || 0,
+      active: data?.stats?.activeUsers || 0,
+      devices: data?.charts?.devices || [],
+    };
   },
 
-  /* ================= TOP PAGES ================= */
-  getTopPages: async (siteId) => {
-    try {
-      const data = await analyticsService.getSummary(siteId);
-      return data?.topPages ?? {};
-    } catch (error) {
-      console.error("Top pages error:", error);
-      return {};
-    }
-  },
-
-  /* ================= DEVICES ================= */
-  getDeviceAnalytics: async (siteId) => {
-    try {
-      const data = await analyticsService.getSummary(siteId);
-      return data?.devices ?? {};
-    } catch (error) {
-      console.error("Device analytics error:", error);
-      return {};
-    }
-  },
-
-  /* ================= CLEAR ANALYTICS ================= */
+  /* ================= CLEAR ================= */
   clearAnalytics: async (siteId) => {
-    if (!siteId) {
-      throw new Error("siteId required");
-    }
+    return apiRequest.delete("/analytics/clear", {
+      params: { siteId },
+    });
+  },
 
-    try {
-      const res = await apiRequest.delete("/analytics/clear", {
-        params: { siteId },
-      });
-
-      return res?.data || res;
-    } catch (error) {
-      console.error("❌ Clear analytics error:", error);
-      throw error;
-    }
+  /* ================= SETUP ================= */
+  getSetupStatus: async (siteId) => {
+    const res = await apiRequest.get(`/analytics/setup/${siteId}`);
+    return res.data;
   },
 };
 

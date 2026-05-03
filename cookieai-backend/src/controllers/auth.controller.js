@@ -2,24 +2,48 @@ const User = require("../models/user.model");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 
-/* ---------- HELPERS ---------- */
+/* ================= HELPERS ================= */
 const signToken = (user) => {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error("JWT_SECRET not set");
+  try {
+    const secret = process.env.JWT_SECRET;
 
-  return jwt.sign(
-    {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-    },
-    secret,
-    { expiresIn: "7d" }
-  );
+    if (!secret) {
+      console.error("❌ JWT_SECRET missing");
+      throw new Error("JWT configuration error");
+    }
+
+    return jwt.sign(
+      {
+        id: user._id,
+        role: user.role,
+
+        // 🔥 future-proof (optional logout all sessions)
+        tokenVersion: user.tokenVersion || 0,
+      },
+      secret,
+      {
+        expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+
+        // 🔐 security metadata
+        issuer: "cookieai",
+        audience: "cookieai-users",
+      }
+    );
+  } catch (err) {
+    console.error("❌ TOKEN SIGN ERROR:", err.message);
+    throw new Error("Token generation failed");
+  }
 };
+const isValidEmail = (email) => {
+  if (!email || typeof email !== "string") return false;
 
-const isValidEmail = (email) =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const normalized = email.trim().toLowerCase();
+
+  // 🔐 stronger but still practical
+  const regex = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
+
+  return regex.test(normalized);
+};
 
 /* ===================================================== */
 /* 🔐 SIGNUP */
@@ -28,42 +52,100 @@ exports.signup = async (req, res) => {
   try {
     let { name, email, password } = req.body || {};
 
+    // 🔹 Normalize input
     name = name?.trim();
     email = email?.trim().toLowerCase();
 
+    /* ================= VALIDATION ================= */
+
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    if (name.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: "Name too short",
+      });
     }
 
     if (!isValidEmail(email)) {
-      return res.status(400).json({ message: "Invalid email format" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email address",
+      });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters" });
+    // 🔐 Strong password check (basic SaaS level)
+    const strongPassword =
+      password.length >= 6 &&
+      /[A-Z]/.test(password) &&
+      /[a-z]/.test(password) &&
+      /\d/.test(password);
+
+    if (!strongPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must contain uppercase, lowercase and number",
+      });
     }
 
-    const existing = await User.findOne({ email });
-    if (existing) {
-      return res.status(409).json({ message: "User already exists" });
+    /* ================= DUPLICATE CHECK ================= */
+
+    const exists = await User.exists({ email });
+
+    if (exists) {
+      return res.status(409).json({
+        success: false,
+        message: "User already exists",
+      });
     }
 
-    const user = await User.create({ name, email, password });
+    /* ================= CREATE USER ================= */
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      isActive: true,
+      emailVerified: false, // 🔥 future email verification
+    });
+
+    /* ================= TOKEN ================= */
 
     const token = signToken(user);
 
+    /* ================= RESPONSE ================= */
+
     return res.status(201).json({
+      success: true,
       token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
       },
     });
 
   } catch (err) {
-    console.error("Signup error:", err);
-    return res.status(500).json({ message: "Signup failed" });
+    console.error("❌ SIGNUP ERROR:", err);
+
+    // 🔥 Handle duplicate index safely (Mongo fallback)
+    if (err.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Email already registered",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
@@ -71,44 +153,77 @@ exports.signup = async (req, res) => {
 /* 🔐 LOGIN */
 /* ===================================================== */
 exports.login = async (req, res) => {
+  console.log("LOGIN BODY:", req.body);
+
   try {
     let { email, password } = req.body || {};
 
+    /* ================= NORMALIZE ================= */
     email = email?.trim().toLowerCase();
 
+    /* ================= VALIDATION ================= */
     if (!email || !password) {
-      return res.status(400).json({ message: "Email and password required" });
+      return res.status(400).json({
+        success: false,
+        message: "Email and password required",
+      });
     }
 
+    /* ================= FIND USER ================= */
     const user = await User.findOne({ email }).select("+password");
 
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
     }
 
+    /* ================= ACCOUNT STATUS ================= */
+    if (!user.canLogin()) {
+      return res.status(403).json({
+        success: false,
+        message: user.isLocked()
+          ? "Account locked. Try later"
+          : "Account disabled",
+      });
+    }
+
+    /* ================= PASSWORD CHECK ================= */
     const isMatch = await user.comparePassword(password);
 
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      await user.incLoginAttempts(); // 🔥 track attempts
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
     }
 
-    user.lastLogin = new Date();
-    await user.save();
+    /* ================= SUCCESS ================= */
+    await user.markLoginSuccess(); // 🔥 reset attempts + set lastLogin
 
     const token = signToken(user);
 
     return res.json({
+      success: true,
       token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
       },
     });
 
   } catch (err) {
-    console.error("Login error:", err);
-    return res.status(500).json({ message: "Login failed" });
+    console.error("❌ LOGIN ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
@@ -117,26 +232,49 @@ exports.login = async (req, res) => {
 /* ===================================================== */
 exports.getMe = async (req, res) => {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: "Unauthorized" });
+    /* ================= AUTH CHECK ================= */
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
     }
 
-    const user = await User.findById(req.user.id).select(
-      "name email role isActive createdAt"
-    );
+    /* ================= FETCH USER ================= */
+    const user = await User.findById(req.user.id)
+      .select("name email role createdAt lastLogin isActive")
+      .lean();
 
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
-    return res.json({ user });
+    /* ================= ACCOUNT STATUS ================= */
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Account disabled",
+      });
+    }
+
+    /* ================= RESPONSE ================= */
+    return res.json({
+      success: true,
+      user,
+    });
 
   } catch (err) {
-    console.error("GetMe error:", err);
-    return res.status(500).json({ message: "Profile fetch failed" });
+    console.error("❌ GETME ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
-
 /* ===================================================== */
 /* 🔑 FORGOT PASSWORD */
 /* ===================================================== */
@@ -144,30 +282,54 @@ exports.forgotPassword = async (req, res) => {
   try {
     const email = req.body?.email?.trim().toLowerCase();
 
+    /* ================= VALIDATION ================= */
     if (!email) {
-      return res.status(400).json({ message: "Email required" });
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
     }
 
+    /* ================= FIND USER ================= */
     const user = await User.findOne({ email });
 
+    // 🔐 Always return same response (prevent email enumeration)
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.json({
+        success: true,
+        message: "If the email exists, a reset link has been sent",
+      });
     }
 
+    /* ================= CREATE TOKEN ================= */
     const resetToken = user.createPasswordResetToken();
-    await user.save();
 
-    // 🔥 For now just return link (later send email)
-    const resetURL = `http://localhost:5173/reset-password?token=${resetToken}`;
+    // IMPORTANT: validateBeforeSave false (skip other validations)
+    await user.save({ validateBeforeSave: false });
 
+    /* ================= BUILD RESET URL ================= */
+    const baseUrl =
+      process.env.CLIENT_URL || "http://localhost:5173";
+
+    const resetURL = `${baseUrl}/reset-password?token=${resetToken}`;
+
+    /* ================= EMAIL SEND (placeholder) ================= */
+    // TODO: replace with real email service (nodemailer / resend / sendgrid)
+    console.log("🔗 RESET LINK:", resetURL);
+
+    /* ================= RESPONSE ================= */
     return res.json({
-      message: "Reset link generated",
-      resetURL,
+      success: true,
+      message: "If the email exists, a reset link has been sent",
     });
 
   } catch (err) {
-    console.error("Forgot password error:", err);
-    return res.status(500).json({ message: "Something went wrong" });
+    console.error("❌ FORGOT PASSWORD ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
@@ -176,35 +338,72 @@ exports.forgotPassword = async (req, res) => {
 /* ===================================================== */
 exports.resetPassword = async (req, res) => {
   try {
-    const { token, password } = req.body;
+    const { token, password } = req.body || {};
 
+    /* ================= VALIDATION ================= */
     if (!token || !password) {
-      return res.status(400).json({ message: "Token and password required" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request",
+      });
     }
 
+    // 🔐 Strong password rule (same as signup)
+    const strongPassword =
+      password.length >= 6 &&
+      /[A-Z]/.test(password) &&
+      /[a-z]/.test(password) &&
+      /\d/.test(password);
+
+    if (!strongPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must contain uppercase, lowercase and number",
+      });
+    }
+
+    /* ================= HASH TOKEN ================= */
     const hashedToken = crypto
       .createHash("sha256")
       .update(token)
       .digest("hex");
 
+    /* ================= FIND USER ================= */
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
       resetPasswordExpires: { $gt: Date.now() },
     }).select("+password");
 
     if (!user) {
-      return res.status(400).json({ message: "Invalid or expired token" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
     }
 
-    user.password = password;
+    /* ================= UPDATE PASSWORD ================= */
+    user.password = password; // 🔥 auto-hashed via pre("save")
     user.clearResetToken();
+
+    // 🔥 Optional: invalidate old tokens (if using tokenVersion)
+    if (user.tokenVersion !== undefined) {
+      user.tokenVersion += 1;
+    }
 
     await user.save();
 
-    return res.json({ message: "Password updated successfully" });
+    /* ================= RESPONSE ================= */
+    return res.json({
+      success: true,
+      message: "Password updated successfully",
+    });
 
   } catch (err) {
-    console.error("Reset password error:", err);
-    return res.status(500).json({ message: "Reset failed" });
+    console.error("❌ RESET PASSWORD ERROR:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };

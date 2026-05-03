@@ -17,8 +17,7 @@ const eventSchema = new mongoose.Schema(
     },
 
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      type: String,
       index: true,
     },
 
@@ -30,14 +29,6 @@ const eventSchema = new mongoose.Schema(
     /* ---------- EVENT TYPE ---------- */
     type: {
       type: String,
-      enum: [
-        "page_view",
-        "heartbeat",
-        "leave",
-        "session_end",
-        "page_time",
-        "session_start"
-      ],
       required: true,
       index: true,
     },
@@ -49,6 +40,7 @@ const eventSchema = new mongoose.Schema(
       type: String,
       index: true,
     },
+    prevPath: String,
 
     referrer: String,
 
@@ -64,7 +56,9 @@ const eventSchema = new mongoose.Schema(
     os: String,
 
     country: String,
+    countryCode: String,
     city: String,
+    userAgent: String,
 
     /* ---------- PERFORMANCE ---------- */
     duration: Number, // session time or page time

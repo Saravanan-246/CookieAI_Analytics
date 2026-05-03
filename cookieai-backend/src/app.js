@@ -2,7 +2,6 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const helmet = require("helmet");
-const morgan = require("morgan");
 
 /* ---------- ROUTES ---------- */
 const authRoutes = require("./routes/auth.routes");
@@ -18,7 +17,7 @@ const errorHandler = require("./middlewares/error.middleware");
 const app = express();
 
 /* =======================================================
-   🔐 SECURITY
+   🔐 SECURITY (LIGHT + SAFE)
 ======================================================= */
 app.use(
   helmet({
@@ -28,40 +27,26 @@ app.use(
 );
 
 /* =======================================================
-   🌐 CORS (PRODUCTION SAFE)
+   🌐 CORS (ALLOW TRACKING + FRONTEND)
 ======================================================= */
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // allow server-to-server / postman
-      if (!origin) return callback(null, true);
-
-      // allow frontend
-      if (origin === CLIENT_URL) return callback(null, true);
-
-      // 🔥 allow tracker script from ANY website
-      return callback(null, true);
-    },
+    origin: true, // 🔥 allow all (needed for tracker SaaS)
     credentials: true,
   })
 );
 
 /* =======================================================
-   📦 BODY PARSER
+   📦 BODY PARSER (OPTIMIZED)
 ======================================================= */
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-/* ---------- LOGGING ---------- */
-app.use(morgan("dev"));
-
 /* =======================================================
-   📡 TRACK FIX (CRITICAL)
+   📡 TRACK PARSER (CRITICAL FIX)
 ======================================================= */
-
-// support sendBeacon / text payload
 app.use("/api/track", express.text({ type: "*/*" }));
 
 app.use("/api/track", (req, res, next) => {
@@ -70,11 +55,13 @@ app.use("/api/track", (req, res, next) => {
       req.body = JSON.parse(req.body);
     }
 
+    // ensure array safety
     if (Array.isArray(req.body)) {
       req.body = req.body.filter(Boolean);
     }
+
   } catch (err) {
-    console.error("Track parse error:", err.message);
+    console.error("❌ Track parse error:", err.message);
     req.body = {};
   }
 
@@ -82,23 +69,21 @@ app.use("/api/track", (req, res, next) => {
 });
 
 /* =======================================================
-   📁 STATIC (TRACKER SERVE)
+   📁 STATIC TRACKER (FAST SERVE)
 ======================================================= */
 const publicPath = path.join(__dirname, "../public");
 
 app.use(express.static(publicPath));
 
-// 🔥 always serve tracker.js
 app.get("/tracker.js", (req, res) => {
   res.sendFile(path.join(publicPath, "tracker.js"));
 });
 
 /* =======================================================
-   🚦 RATE LIMIT
+   🚦 RATE LIMIT (IMPORTANT)
 ======================================================= */
-app.use("/api/scan", rateLimiter);
 app.use("/api/track", rateLimiter);
-app.use("/api/auth/forgot-password", rateLimiter); // 🔥 protect abuse
+app.use("/api/scan", rateLimiter);
 
 /* =======================================================
    🔗 ROUTES
@@ -110,22 +95,12 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/sites", siteRoutes);
 
 /* =======================================================
-   🧪 DEBUG
-======================================================= */
-const Event = require("./models/event.model");
-
-app.get("/debug/events", async (req, res) => {
-  const data = await Event.find().limit(10);
-  res.json(data);
-});
-
-/* =======================================================
    ❤️ HEALTH CHECK
 ======================================================= */
 app.get("/", (req, res) => {
   res.json({
-    message: "CookieAI Backend Running",
     status: "OK",
+    service: "CookieAI Backend",
     time: new Date(),
   });
 });
@@ -136,7 +111,7 @@ app.get("/", (req, res) => {
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `Route not found: ${req.originalUrl}`,
+    message: "Route not found",
   });
 });
 

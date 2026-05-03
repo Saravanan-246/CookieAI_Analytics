@@ -2,32 +2,43 @@ const mongoose = require("mongoose");
 
 const visitSchema = new mongoose.Schema(
   {
-    /* ---------- SAAS IDENTIFIER ---------- */
+    /* ================= IDENTIFIER ================= */
     siteId: {
       type: String,
       required: true,
       index: true,
     },
 
-    /* ---------- PAGE INFO ---------- */
-    url: String,
+    /* ================= PAGE ================= */
+    url: {
+      type: String,
+      default: "",
+    },
 
     path: {
       type: String,
       index: true,
+      default: "/",
     },
 
-    title: String,
-    referrer: String,
+    title: {
+      type: String,
+      default: "",
+    },
 
-    /* ---------- EVENT TYPE ---------- */
+    referrer: {
+      type: String,
+      default: "",
+    },
+
+    /* ================= EVENT ================= */
     type: {
       type: String,
       default: "page_view",
       index: true,
     },
 
-    /* ---------- USER CONTEXT ---------- */
+    /* ================= USER ================= */
     device: {
       type: String,
       enum: ["Mobile", "Desktop", "Tablet"],
@@ -39,11 +50,12 @@ const visitSchema = new mongoose.Schema(
     os: String,
     language: String,
 
-    /* ---------- GEO ---------- */
+    /* ================= GEO ================= */
     country: {
       type: String,
       index: true,
     },
+    countryCode: String,
 
     region: String,
 
@@ -54,7 +66,7 @@ const visitSchema = new mongoose.Schema(
 
     ip: String,
 
-    /* ---------- SESSION ---------- */
+    /* ================= SESSION ================= */
     sessionId: {
       type: String,
       index: true,
@@ -65,9 +77,9 @@ const visitSchema = new mongoose.Schema(
       default: 0,
     },
 
-    /* ---------- TIME ---------- */
+    /* ================= TIME ================= */
     time: {
-      type: Date, // 🔥 FIXED
+      type: Date,
       default: Date.now,
     },
   },
@@ -76,28 +88,59 @@ const visitSchema = new mongoose.Schema(
   }
 );
 
-/* ---------- INDEXES (VERY IMPORTANT) ---------- */
+/* ================= INDEXES ================= */
 
-// 🔥 dashboard queries
+/* 🔥 dashboard timeline */
 visitSchema.index({ siteId: 1, time: -1 });
 
-// 🔥 device analytics
+/* 🔥 fast page analytics */
+visitSchema.index({ siteId: 1, path: 1, time: -1 });
+
+/* 🔥 device analytics */
 visitSchema.index({ siteId: 1, device: 1 });
 
-// 🔥 country analytics
+/* 🔥 country analytics */
 visitSchema.index({ siteId: 1, country: 1 });
 
-//  page analytics
-visitSchema.index({ siteId: 1, path: 1 });
-
-//  session tracking
+/* 🔥 session tracking */
 visitSchema.index({ siteId: 1, sessionId: 1 });
 
-/* ---------- TTL CLEANUP ---------- */
-// delete visits after 30 days (use time field, not createdAt)
+/* 🔥 type analytics */
+visitSchema.index({ siteId: 1, type: 1 });
+
+/* ================= TTL CLEANUP ================= */
+/* 🔥 auto delete after 30 days */
 visitSchema.index(
   { time: 1 },
-  { expireAfterSeconds: 60 * 60 * 24 * 30 }
+  {
+    expireAfterSeconds: 60 * 60 * 24 * 30,
+  }
 );
+
+/* ================= STATIC HELPERS ================= */
+
+/* 🔥 SAFE CREATE (HIGH LOAD SAFE) */
+visitSchema.statics.createVisit = async function (data) {
+  try {
+    return await this.create(data);
+  } catch (err) {
+    // prevent crash on burst traffic
+    console.error("Visit create error:", err.message);
+    return null;
+  }
+};
+
+/* 🔥 BULK INSERT (FOR BATCH TRACKING) */
+visitSchema.statics.bulkInsert = async function (visits) {
+  try {
+    if (!Array.isArray(visits) || visits.length === 0) return;
+
+    return await this.insertMany(visits, {
+      ordered: false, // 🔥 prevents crash if one fails
+    });
+  } catch (err) {
+    console.error("Bulk insert error:", err.message);
+  }
+};
 
 module.exports = mongoose.model("Visit", visitSchema);

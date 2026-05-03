@@ -1,0 +1,111 @@
+/* Dashboard V2 — Design System */
+
+/* ======================== LAYOUT ======================== */
+.dash-container {
+  @apply max-w-[1400px] mx-auto px-6 py-6;
+}
+
+/* ======================== CARD SYSTEM ======================== */
+.dash-card {
+  @apply bg-white rounded-2xl border border-gray-100 shadow-sm p-5
+         transition-all duration-300 hover:shadow-md;
+}
+
+.dash-card-hover {
+  @apply hover:shadow-md hover:scale-[1.01];
+}
+
+/* ======================== STAT CARDS ======================== */
+.stat-card {
+  @apply bg-white border border-gray-100 rounded-xl p-5 shadow-sm
+         transition-all duration-300;
+}
+
+.stat-label {
+  @apply text-[10px] font-bold text-gray-400 uppercase tracking-widest;
+}
+
+.stat-value {
+  @apply text-3xl font-bold text-gray-900 tabular-nums tracking-tight;
+}
+
+/* ======================== LIVE INDICATOR ======================== */
+.live-indicator {
+  @apply flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider;
+}
+
+.live-dot {
+  @apply w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse;
+}
+
+/* ======================== DATA PANELS ======================== */
+.data-panel {
+  @apply bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden;
+}
+
+.data-panel-header {
+  @apply px-5 py-3 border-b border-gray-50 flex items-center justify-between;
+}
+
+.data-panel-title {
+  @apply text-sm font-semibold text-gray-900;
+}
+
+.section-label {
+  @apply text-[10px] font-bold text-gray-400 uppercase tracking-widest;
+}
+
+/* ======================== TYPOGRAPHY ======================== */
+.title-sm {
+  @apply text-sm font-semibold text-gray-900;
+}
+
+.label-xs {
+  @apply text-xs text-gray-500;
+}
+
+.number-lg {
+  @apply text-2xl font-bold text-gray-900 tabular-nums;
+}
+
+/* ======================== SCROLLBAR ======================== */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
+}
+
+/* ======================== ANIMATIONS ======================== */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* ======================== SPACING TOKENS ======================== */
+.gap-system {
+  @apply gap-6;
+}
+
+.mb-system {
+  @apply mb-6;
+}

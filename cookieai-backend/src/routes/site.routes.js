@@ -5,69 +5,97 @@ const siteController = require("../controllers/site.controller");
 const auth = require("../middlewares/auth.middleware");
 const rateLimiter = require("../middlewares/rateLimit.middleware");
 
-/* ---------- MIDDLEWARE STACK ---------- */
-const secure = [auth];                 // 🔐 required auth
-const writeSecure = [auth, rateLimiter]; // 🔥 heavy ops protection
+/* ================= MIDDLEWARE ================= */
+const secure = [auth];
+const writeSecure = [auth, rateLimiter];
 
-/* ---------- HEALTH ---------- */
+/* ================= VALIDATION ================= */
+const validateSiteId = (req, res, next) => {
+  const { siteId } = req.params;
+
+  if (!siteId || typeof siteId !== "string") {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid siteId"
+    });
+  }
+
+  next();
+};
+
+/* ================= SAFE WRAPPER ================= */
+const safe = (handler) => async (req, res, next) => {
+  try {
+    await handler(req, res, next);
+  } catch (err) {
+    console.error("❌ Site route error:", err.message);
+    res.status(500).json({ success: false });
+  }
+};
+
+/* ================= HEALTH ================= */
 router.get("/health", (req, res) => {
   res.json({
     success: true,
     service: "sites",
     status: "ok",
-    uptime: process.uptime(),
+    uptime: process.uptime()
   });
 });
 
-/* ---------- CREATE SITE ---------- */
-/* 🔥 supports BOTH / and /create */
+/* ================= CREATE SITE ================= */
 router.post(
   ["/", "/create"],
   ...writeSecure,
-  siteController.createSite
+  safe(siteController.createSite)
 );
 
-/* ---------- GET ALL SITES ---------- */
-/* 🔥 supports BOTH / and /list */
+/* ================= GET ALL SITES ================= */
 router.get(
   ["/", "/list"],
   ...secure,
-  siteController.getSites
+  safe(siteController.getSites)
 );
 
-/* ---------- GET SINGLE SITE ---------- */
-/* ⚠️ KEEP AFTER /list to avoid conflict */
-router.get(
-  "/:siteId",
-  ...secure,
-  siteController.getSiteById
-);
-
-/* ---------- GET TRACKING SCRIPT ---------- */
+/* ================= GET SCRIPT ================= */
+/* 🔥 KEEP BEFORE /:siteId */
 router.get(
   "/:siteId/script",
   ...secure,
-  siteController.getScript
+  validateSiteId,
+  safe(siteController.getScript)
 );
 
-/* ---------- GET SITE STATUS ---------- */
+/* ================= GET STATUS ================= */
 router.get(
   "/:siteId/status",
   ...secure,
-  siteController.getSiteStatus
+  validateSiteId,
+  safe(siteController.getSiteStatus)
 );
 
-/* ---------- ACTIVATE SITE TRACKING (PUBLIC) ---------- */
+/* ================= GET SINGLE SITE ================= */
+/* 🔥 KEEP LAST (dynamic route) */
+router.get(
+  "/:siteId",
+  ...secure,
+  validateSiteId,
+  safe(siteController.getSiteById)
+);
+
+/* ================= ACTIVATE (PUBLIC) ================= */
 router.post(
   "/activate",
-  siteController.activateSite
+  rateLimiter,
+  safe(siteController.activateSite)
 );
 
-/* ---------- DELETE SITE ---------- */
+/* ================= DELETE ================= */
 router.delete(
   "/:siteId",
   ...writeSecure,
-  siteController.deleteSite
+  validateSiteId,
+  safe(siteController.deleteSite)
 );
 
 module.exports = router;

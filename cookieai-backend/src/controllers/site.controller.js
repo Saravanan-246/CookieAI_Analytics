@@ -5,98 +5,75 @@ const Session = require("../models/session.model");
 
 const crypto = require("crypto");
 
-/* ---------- HELPERS ---------- */
+/* ================= HELPERS ================= */
 const generateId = () => crypto.randomBytes(8).toString("hex");
 const generateKey = () => "ck_" + crypto.randomBytes(24).toString("hex");
 
-const isValidDomain = (d) => {
-  if (!d) return true;
-
-  const cleaned = d.toLowerCase().trim();
-
-  // allow localhost
-  if (cleaned === "localhost") return true;
-
-  // allow IP addresses (127.0.0.1, 192.168.1.1, etc.)
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(cleaned)) return true;
-
-  // allow domains (google.com, mysite.in, etc.)
-  return /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(cleaned);
+const cleanDomain = (d) => {
+  if (!d) return "";
+  return d
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "")
+    .toLowerCase()
+    .trim();
 };
+
+const isValidDomain = (d) => {
+  if (!d) return false;
+
+  if (d === "localhost") return true;
+
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(d)) return true;
+
+  return /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(d);
+};
+
+const invalidSite = (siteId) =>
+  !siteId ||
+  ["dashboard", "undefined", "null"].includes(siteId);
 
 /* ===================================================== */
 /* ================= CREATE SITE ======================== */
 /* ===================================================== */
 exports.createSite = async (req, res) => {
   try {
-    console.log("REQ BODY:", req.body);
-    console.log("USER:", req.user);
-
     const userId = req.user?.id;
-    const { name, domain } = req.body || {};
-
-    console.log("DOMAIN RECEIVED:", domain);
+    let { name, domain } = req.body || {};
 
     if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+      return res.status(401).json({ success: false });
     }
 
     if (!name || name.trim().length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid name is required (min 2 characters)",
-      });
+      return res.status(400).json({ success: false, message: "Invalid name" });
     }
 
-    if (!domain) {
-      return res.status(400).json({
-        success: false,
-        message: "Domain is required",
-      });
-    }
+    domain = cleanDomain(domain);
 
-    if (!isValidDomain(domain)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid domain format",
-      });
+    // Domain is optional — only validate if provided
+    if (domain && !isValidDomain(domain)) {
+      return res.status(400).json({ success: false, message: "Invalid domain" });
     }
-
-    // Note: Multiple sites can have the same domain for the same user
-    // Only siteId and apiKey must be unique
 
     const site = await Site.create({
       userId,
       name: name.trim(),
-      domain: domain?.toLowerCase(),
+      domain,
       siteId: generateId(),
       apiKey: generateKey(),
     });
 
     return res.status(201).json({
       success: true,
-      data: {
-        id: site._id,
-        name: site.name,
-        domain: site.domain,
-        siteId: site.siteId,
-        apiKey: site.apiKey,
-        createdAt: site.createdAt,
-      },
+      data: site,
     });
-  } catch (err) {
-    console.error("CreateSite Error:", err);
 
-    if (err.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Duplicate key error",
-      });
-    }
+  } catch (err) {
+    console.error("CreateSite Error:", err.message);
 
     return res.status(500).json({
       success: false,
-      message: err.message || "Create failed",
+      message: "Create failed",
     });
   }
 };
@@ -108,330 +85,159 @@ exports.getSites = async (req, res) => {
   try {
     const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
+    if (!userId) return res.status(401).json({ success: false });
 
     const sites = await Site.find({
       userId,
       isDeleted: false,
     })
-      .select("name domain siteId isActive createdAt")
+      .select("name domain siteId isTrackingActive createdAt")
       .sort({ createdAt: -1 })
       .lean();
 
-    return res.json({
-      success: true,
-      data: sites,
-    });
+    return res.json({ success: true, data: sites });
+
   } catch (err) {
-    console.error("GetSites Error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Fetch failed",
-    });
+    console.error("GetSites Error:", err.message);
+    return res.status(500).json({ success: false });
   }
 };
 
 /* ===================================================== */
-/* ================= GET SINGLE SITE ==================== */
+/* ================= GET SINGLE ========================= */
 /* ===================================================== */
 exports.getSiteById = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { siteId } = req.params;
 
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
-
-    // Validate siteId
-    if (!siteId || siteId === "dashboard" || siteId === "undefined" || siteId === "null") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid siteId",
-      });
+    if (!userId || invalidSite(siteId)) {
+      return res.status(400).json({ success: false });
     }
 
     const site = await Site.findOne({
-      siteId: siteId,
+      siteId,
       userId,
       isDeleted: false,
-    })
-      .select("+apiKey")
-      .lean();
+    }).select("+apiKey");
 
     if (!site) {
-      return res.status(404).json({
-        success: false,
-        message: "Site not found",
-      });
+      return res.status(404).json({ success: false });
     }
 
-    return res.json({
-      success: true,
-      data: site,
-    });
+    return res.json({ success: true, data: site });
+
   } catch (err) {
-    console.error("GetSite Error:", err);
-
-    if (err.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid site id",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Fetch failed",
-    });
+    console.error("GetSite Error:", err.message);
+    return res.status(500).json({ success: false });
   }
 };
 
 /* ===================================================== */
-/* ================= GET TRACKING SCRIPT ================ */
+/* ================= SCRIPT ============================= */
 /* ===================================================== */
 exports.getScript = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { siteId } = req.params;
 
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
-
-    // Validate siteId
-    if (!siteId || siteId === "dashboard" || siteId === "undefined" || siteId === "null") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid siteId",
-      });
+    if (!userId || invalidSite(siteId)) {
+      return res.status(400).json({ success: false });
     }
 
     const site = await Site.findOne({
-      siteId: siteId,
+      siteId,
       userId,
       isDeleted: false,
-    }).select("+apiKey");
+    });
 
     if (!site) {
-      return res.status(404).json({
-        success: false,
-        message: "Site not found",
-      });
+      return res.status(404).json({ success: false });
     }
 
-    // Generate tracking script
-    // Use BASE_URL env var for production flexibility
-    const BASE_URL = process.env.BASE_URL || process.env.TRACKER_URL || process.env.API_URL || "http://localhost:5000";
-    
+    const BASE_URL =
+      process.env.BASE_URL ||
+      `http://localhost:${process.env.PORT || 5000}`;
+
     const script = `<script defer data-site-id="${site.siteId}" src="${BASE_URL}/tracker.js"></script>`;
 
     return res.json({
       success: true,
-      data: {
-        siteId: site.siteId,
-        script,
-      },
+      data: { script },
     });
+
   } catch (err) {
-    console.error("GetScript Error:", err);
-
-    if (err.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid site id",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Fetch failed",
-    });
+    console.error("GetScript Error:", err.message);
+    return res.status(500).json({ success: false });
   }
 };
 
 /* ===================================================== */
-/* ================= GET SITE STATUS ===================== */
+/* ================= STATUS ============================= */
 /* ===================================================== */
 exports.getSiteStatus = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { siteId } = req.params;
 
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!userId || invalidSite(siteId)) {
+      return res.status(400).json({ success: false });
     }
 
-    // Validate siteId
-    if (!siteId || siteId === "dashboard" || siteId === "undefined" || siteId === "null") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid siteId",
-      });
-    }
-
-    const site = await Site.findOne({
-      siteId: siteId,
-      userId,
-      isDeleted: false,
-    }).select("isTrackingActive lastEventAt");
-
-    if (!site) {
-      return res.status(404).json({
-        success: false,
-        message: "Site not found",
-      });
-    }
+    const eventCount = await Event.countDocuments({ siteId });
 
     return res.json({
       success: true,
       data: {
-        isTrackingActive: site.isTrackingActive || false,
-        lastEventAt: site.lastEventAt,
+        isTrackingActive: eventCount > 0,
+        totalEvents: eventCount,
       },
     });
+
   } catch (err) {
-    console.error("GetSiteStatus Error:", err);
-
-    if (err.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid site id",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Fetch failed",
-    });
+    console.error("Status Error:", err.message);
+    return res.status(500).json({ success: false });
   }
 };
 
 /* ===================================================== */
-/* ================= ACTIVATE SITE TRACKING (DEPRECATED) ============== */
-/* ===================================================== */
-// Auto-detection is now done in getSummary by checking Event count
-// This endpoint is kept for backward compatibility but no longer used
-exports.activateSite = async (req, res) => {
-  try {
-    const { siteId } = req.body;
-
-    if (!siteId) {
-      return res.status(400).json({
-        success: false,
-        message: "siteId required",
-      });
-    }
-
-    // Validate siteId
-    if (siteId === "dashboard" || siteId === "undefined" || siteId === "null") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid siteId",
-      });
-    }
-
-    const site = await Site.findOne({
-      siteId: siteId,
-      isDeleted: false,
-    });
-
-    if (!site) {
-      return res.status(404).json({
-        success: false,
-        message: "Site not found",
-      });
-    }
-
-    // Check if any events exist for this site
-    const eventCount = await Event.countDocuments({ siteId });
-    
-    // Mark tracking as installed if events exist
-    site.trackingInstalled = eventCount > 0;
-    site.isTrackingActive = eventCount > 0;
-    site.lastEventAt = new Date();
-    await site.save();
-
-    return res.json({
-      success: true,
-      message: "Site tracking status updated",
-      trackingInstalled: site.trackingInstalled,
-    });
-  } catch (err) {
-    console.error("ActivateSite Error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Activation failed",
-    });
-  }
-};
-
-/* ===================================================== */
-/* ================= DELETE SITE (FIXED) ================= */
+/* ================= DELETE ============================= */
 /* ===================================================== */
 exports.deleteSite = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { siteId } = req.params;
 
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!userId || invalidSite(siteId)) {
+      return res.status(400).json({ success: false });
     }
 
-    // Validate siteId
-    if (!siteId || siteId === "dashboard" || siteId === "undefined" || siteId === "null") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid siteId",
-      });
-    }
-
-    // 🔥 find site first
     const site = await Site.findOne({
-      siteId: siteId,
+      siteId,
       userId,
       isDeleted: false,
     });
 
     if (!site) {
-      return res.status(404).json({
-        success: false,
-        message: "Site not found",
-      });
+      return res.status(404).json({ success: false });
     }
 
-    const publicSiteId = site.siteId;
-
-    // 🔥 soft delete
     site.isDeleted = true;
     await site.save();
 
-    // 🔥 HARD DELETE ANALYTICS DATA (IMPORTANT)
     await Promise.all([
-      Visit.deleteMany({ siteId: publicSiteId }),
-      Event.deleteMany({ siteId: publicSiteId }),
-      Session.deleteMany({ siteId: publicSiteId }),
+      Visit.deleteMany({ siteId }),
+      Event.deleteMany({ siteId }),
+      Session.deleteMany({ siteId }),
     ]);
 
     return res.json({
       success: true,
-      message: "Site and analytics data deleted",
+      message: "Deleted successfully",
     });
+
   } catch (err) {
-    console.error("DeleteSite Error:", err);
-
-    if (err.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid site id",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Delete failed",
-    });
+    console.error("Delete Error:", err.message);
+    return res.status(500).json({ success: false });
   }
 };

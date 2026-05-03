@@ -3,8 +3,11 @@ import { ProtectedRoute } from "./guards";
 
 import AppLayout from "../components/layout/AppLayout";
 
+/* 🔥 DASHBOARDS */
+import { DashboardV2 } from "../dash_v2";
+import DashboardHome from "../dash_v2/app/DashboardHome";
+
 /* ---------- PAGES ---------- */
-import Dashboard from "../pages/dashboard/Dashboard";
 import Analytics from "../pages/analytics/Analytics";
 import Sites from "../pages/sites/Sites";
 import Billing from "../pages/billing/Billing";
@@ -16,11 +19,10 @@ import Register from "../pages/auth/Register";
 import ForgotPassword from "../pages/auth/ForgotPassword";
 import ResetPassword from "../pages/auth/ResetPassword";
 
-/* ---------- AUTH GUARD (FOR LOGIN/REGISTER) ---------- */
+/* ---------- AUTH GUARD ---------- */
 const PublicRoute = ({ children }) => {
   const token = localStorage.getItem("token");
 
-  // 🔥 if already logged in → go dashboard
   if (token) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -30,7 +32,6 @@ const PublicRoute = ({ children }) => {
 
 /* ---------- ROUTER ---------- */
 export const router = createBrowserRouter([
-
   /* ================= AUTH ================= */
   {
     path: "/login",
@@ -48,8 +49,6 @@ export const router = createBrowserRouter([
       </PublicRoute>
     ),
   },
-
-  /* 🔥 NEW ROUTES */
   {
     path: "/forgot-password",
     element: <ForgotPassword />,
@@ -68,18 +67,25 @@ export const router = createBrowserRouter([
       </ProtectedRoute>
     ),
     children: [
-
       /* 🔥 DEFAULT */
       {
         index: true,
         element: <Navigate to="dashboard" replace />,
       },
 
-      /* ---------- MAIN ---------- */
+      /* 🔥 GLOBAL DASHBOARD */
       {
         path: "dashboard",
-        element: <Dashboard />,
+        element: <DashboardHome />,
       },
+
+      /* 🔥 SITE DASHBOARD */
+      {
+        path: "dashboard/:siteId",
+        element: <DashboardV2 />,
+      },
+
+      /* ---------- MAIN ---------- */
       {
         path: "analytics/:siteId",
         element: <Analytics />,
