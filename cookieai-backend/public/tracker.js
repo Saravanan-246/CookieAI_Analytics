@@ -95,6 +95,7 @@
 
     const QUEUE_KEY = `cookie_queue_${siteId}`;
     const SESSION_TS_KEY = `cookie_session_ts_${siteId}`;
+    const SESSION_FLAG = "cookieai_session_started";
     localStorage.setItem(SESSION_TS_KEY, String(Date.now()));
 
     /* ================= SESSION QUALITY TRACKING ================= */
@@ -314,9 +315,15 @@
     };
 
     function trackPageView() {
+      // Pause tracking when user is inactive or tab is hidden
+      if (isIdle || document.hidden) {
+        log("⏭️ Page view paused (idle or hidden)");
+        return;
+      }
+
       const currentPath = getPath();
 
-      // Avoid duplicate page_view for the same path within dedup window
+      // Avoid duplicate page_view for the same path
       if (isDuplicatePageView(currentPath)) {
         log("⏭️ Duplicate page_view skipped:", currentPath);
         return;
@@ -414,12 +421,7 @@
         send("user_hidden");
       } else {
         send("user_visible");
-        // Also mark active on return
-        if (isIdle) {
-          isIdle = false;
-          lastActiveSent = Date.now();
-          send("user_active", false, { trigger: "tab_visible" });
-        }
+        resetIdleTimer();
         flushQueue();
       }
     });
