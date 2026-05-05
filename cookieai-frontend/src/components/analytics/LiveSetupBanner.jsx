@@ -1,201 +1,139 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Copy, Check, ExternalLink, Rocket, Activity, Zap, ShieldCheck, X } from "lucide-react";
+import { Check, Copy, ShieldCheck, Rocket } from "lucide-react";
 
-const STORAGE_KEY = "cookieai_banner_dismissed";
-const HAS_DATA_KEY = "cookieai_has_data";
+const STORAGE_KEY = "cookieai_tracking_done";
 
-const LiveSetupBanner = ({
-  site,
-  hasData = false,
-  openScript,
-  onCheckStatus
-}) => {
+const LiveSetupBanner = ({ site, hasData = false }) => {
   const [copied, setCopied] = useState(false);
-  const [fading, setFading] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const hasTriggeredCollapse = useRef(false);
+  const [visible, setVisible] = useState(() => {
+    return localStorage.getItem(STORAGE_KEY) !== "true";
+  });
 
-  const installed = Boolean(site?.installed || site?.trackingInstalled);
-  const isNoScript = !installed;
+  const hasTriggered = useRef(false);
+
   const isWaiting = !hasData;
   const isLive = hasData;
 
-  const handleDismiss = useCallback(() => {
-    setFading(true);
-    setTimeout(() => {
-      setDismissed(true);
-    }, 400);
-  }, []);
-
+  /* ---------- AUTO HIDE + PERSIST ---------- */
   useEffect(() => {
-    if (isLive && !hasTriggeredCollapse.current) {
-      hasTriggeredCollapse.current = true;
-      const t = setTimeout(() => handleDismiss(), 4000);
-      return () => clearTimeout(t);
-    }
-  }, [isLive, handleDismiss]);
+    if (isLive && !hasTriggered.current) {
+      hasTriggered.current = true;
 
+      localStorage.setItem(STORAGE_KEY, "true");
+
+      setTimeout(() => setVisible(false), 2000);
+    }
+  }, [isLive]);
+
+  /* ---------- RESET ON NEW SITE ---------- */
   useEffect(() => {
-    if (site?.siteId && !hasData) {
-      setDismissed(false);
-      setFading(false);
-      hasTriggeredCollapse.current = false;
+    if (site?.siteId) {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) {
+        setVisible(true);
+        hasTriggered.current = false;
+      }
     }
-  }, [site?.siteId, hasData]);
+  }, [site?.siteId]);
 
-const handleCopy = useCallback(() => {
-  if (!site?.siteId) return;
+  /* ---------- COPY ---------- */
+  const handleCopy = useCallback(() => {
+    if (!site?.siteId) return;
 
-  const TRACKER_BASE =
-    import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+    const BASE =
+      import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
-  const tag = `<script defer data-site-id="${site.siteId}" src="${TRACKER_BASE}/tracker.js"></script>`;
+    const tag = `<script defer data-site-id="${site.siteId}" src="${BASE}/tracker.js"></script>`;
 
-  navigator.clipboard.writeText(tag).then(() => {
+    navigator.clipboard.writeText(tag);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  });
+    setTimeout(() => setCopied(false), 1200);
+  }, [site]);
 
-}, [site]);
+  if (!site || !visible) return null;
 
-  const handleVisit = useCallback(() => {
-    if (site?.domain) window.open(`https://${site.domain}`, "_blank");
-    onCheckStatus?.();
-  }, [site, onCheckStatus]);
+  return (
+    <div className="w-full max-w-xl mx-auto mt-6 px-4 sm:px-0 transition-all duration-300">
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
 
-  if (!site || dismissed) return null;
+        {/* TOP BAR */}
+        <div
+          className={`h-[3px] ${
+            isLive
+              ? "bg-emerald-500"
+              : isWaiting
+              ? "bg-amber-400"
+              : "bg-indigo-500"
+          }`}
+        />
 
-return (
-  <div style={{
-    maxWidth: "520px",
-    margin: "40px auto",
-    transition: "all 0.3s ease",
-    opacity: fading ? 0 : 1
-  }}>
+        <div className="px-5 sm:px-6 py-5 sm:py-6 text-center">
 
-    <div style={{
-      background: "#fff",
-      borderRadius: "16px",
-      border: "1px solid #e5e7eb",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
-      overflow: "hidden"
-    }}>
+          {/* ICON */}
+          <div className="w-11 h-11 sm:w-12 sm:h-12 mx-auto mb-4 flex items-center justify-center rounded-xl bg-gray-50">
+            {isLive ? (
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+            ) : (
+              <Rocket className="w-5 h-5 text-gray-700" />
+            )}
+          </div>
 
-      {/* TOP BAR */}
-      <div style={{
-        height: "3px",
-        background: isLive ? "#10b981" : isWaiting ? "#f59e0b" : "#6366f1"
-      }} />
+          {/* TITLE */}
+          <h3 className="text-sm sm:text-base font-semibold text-gray-900">
+            {isLive ? "Tracking Active" : "Install Tracking Script"}
+          </h3>
 
-      <div style={{ padding: "22px", textAlign: "center" }}>
+          {/* SUBTEXT */}
+          {!isLive && (
+            <p className="text-xs text-gray-500 mt-1">
+              Copy and place this inside your &lt;head&gt;
+            </p>
+          )}
 
-        {/* ICON */}
-        <div style={{
-          width: "52px",
-          height: "52px",
-          borderRadius: "12px",
-          margin: "0 auto 12px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#f9fafb"
-        }}>
-          {isNoScript && <Zap size={20} />}
-          {isWaiting && <Rocket size={20} />}
-          {isLive && <ShieldCheck size={20} />}
-        </div>
+          {/* SCRIPT BOX */}
+          {!isLive && (
+            <div
+              onClick={handleCopy}
+              className="mt-4 border border-gray-200 rounded-xl overflow-hidden cursor-pointer hover:border-gray-300 transition"
+            >
+              <div className="flex justify-between items-center px-3 py-2 text-[11px] bg-gray-50 text-gray-500">
+                <span className="uppercase tracking-wide">script</span>
+                <span className="flex items-center gap-1">
+                  {copied ? (
+                    <>
+                      <Check className="w-3 h-3" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" /> Copy
+                    </>
+                  )}
+                </span>
+              </div>
 
-        {/* TITLE */}
-        <h3 style={{
-          fontSize: "16px",
-          fontWeight: "700",
-          marginBottom: "4px"
-        }}>
-          {isLive ? "Tracking Active 🎉" : "Install Tracking Script"}
-        </h3>
-
-        {/* SUBTEXT */}
-        {!isLive && (
-          <p style={{
-            fontSize: "13px",
-            color: "#6b7280",
-            marginBottom: "14px"
-          }}>
-            Click to copy and paste inside <b>&lt;head&gt;</b>
-          </p>
-        )}
-
-        {/* 🔥 CLICKABLE CODE BLOCK */}
-        {!isLive && (
-          <div
-            onClick={handleCopy}
-            style={{
-              borderRadius: "12px",
-              border: "1px solid #e5e7eb",
-              background: "#0b1220",
-              cursor: "pointer",
-              overflow: "hidden",
-              transition: "all 0.2s ease"
-            }}
-          >
-
-            {/* HEADER */}
-            <div style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "6px 10px",
-              background: "#111827",
-              fontSize: "11px",
-              color: copied ? "#10b981" : "#9ca3af"
-            }}>
-              <span>script</span>
-              <span>{copied ? "Copied ✓" : "Click to copy"}</span>
-            </div>
-
-            {/* CODE */}
-            <div style={{
-              padding: "12px",
-              fontSize: "12px",
-              color: "#e5e7eb",
-              fontFamily: "monospace",
-              textAlign: "left",
-              overflowX: "auto"
-            }}>
+              <div className="px-3 py-3 text-[11px] sm:text-xs font-mono text-gray-800 text-left overflow-x-auto">
 {`<script defer data-site-id="${site?.siteId}" src="${window.location.origin.replace(":3000", ":5000")}/tracker.js"></script>`}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* STATUS */}
-        {isWaiting && (
-          <div style={{
-            marginTop: "10px",
-            fontSize: "12px",
-            color: "#f59e0b"
-          }}>
-            Waiting for first event...
-          </div>
-        )}
+          {/* WAITING */}
+          {isWaiting && (
+            <p className="text-xs text-amber-500 mt-3">
+              Waiting for first event...
+            </p>
+          )}
 
-        {/* SUCCESS */}
-        {isLive && (
-          <div style={{
-            marginTop: "12px",
-            padding: "10px",
-            borderRadius: "10px",
-            background: "#ecfdf5",
-            color: "#065f46",
-            fontSize: "13px",
-            fontWeight: "600"
-          }}>
-            ✓ Data is flowing from <b>{site?.domain}</b>
-          </div>
-        )}
-
+          {/* SUCCESS */}
+          {isLive && (
+            <div className="mt-4 px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-xs sm:text-sm font-medium">
+              Data is flowing from {site?.domain || "your site"}
+            </div>
+          )}
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
 };
 
 export default React.memo(LiveSetupBanner);

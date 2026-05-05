@@ -17,7 +17,7 @@ import { socketService } from "../../services/socket.service";
 
 import ScriptModal from "../../components/sites/ScriptModal";
 import LiveSetupBanner from "../../components/analytics/LiveSetupBanner";
-import VisitedPagesCard from "../../components/analytics/VisitedPagesCard";
+import TopPagesList from "./TopPagesList";
 import LiveFeed from "../../dash_v2/components/realtime/LiveFeed";
 import LiveUsers from "../../dash_v2/components/realtime/LiveUsers";
 import KpiCard from "../../components/analytics/KpiCard";
@@ -555,18 +555,58 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* TABLES GRID */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <section className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm overflow-hidden">
-              <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <Zap className="w-5 h-5 text-amber-400" /> Top Performing Pages
-              </h2>
-         <VisitedPagesCard
-  pages={data.pages}
-  loading={loading}
-  siteId={siteId}
-/>
-            </section>
+{/* TABLES GRID */}
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <section className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+
+    {/* HEADER */}
+    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      
+      {/* TITLE */}
+      <div className="flex flex-col">
+        <h2 className="text-sm font-semibold text-gray-900">
+          Top Pages
+        </h2>
+        <span className="text-xs text-gray-400 mt-0.5">
+          Most visited routes
+        </span>
+      </div>
+
+      {/* ACTION */}
+      <button
+        onClick={() => {
+          const event = new CustomEvent("top-pages-expand");
+          window.dispatchEvent(event);
+        }}
+        disabled={!data?.pages?.length}
+        className={`
+          text-xs font-medium px-3 py-1.5 rounded-md transition
+          ${
+            !data?.pages?.length
+              ? "text-gray-300 cursor-not-allowed"
+              : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+          }
+        `}
+      >
+        View all
+      </button>
+    </div>
+
+    {/* BODY */}
+    <div
+      id="top-pages-list"
+      className="px-6 py-4 max-h-[320px] overflow-y-auto"
+    >
+      <TopPagesList
+        pages={data?.pages || []}
+        loading={loading}
+      />
+    </div>
+
+  </section>
+ 
+ 
+ 
 
             <section className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm">
               <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
