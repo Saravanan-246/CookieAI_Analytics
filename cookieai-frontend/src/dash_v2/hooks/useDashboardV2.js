@@ -1,65 +1,286 @@
-import { useEffect, useState, useRef } from "react";
+import {
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
+
 import { getDashboardData } from "../services/dashboard.service";
-import { fallbackData } from "../data/fallback";
 
-/**
- * Dashboard Data Hook
- * @param {string} siteId
- */
 export const useDashboardV2 = (siteId) => {
-  const [data, setData] = useState(fallbackData);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  // prevent duplicate calls
-  const isMounted = useRef(true);
+  const [data, setData] = useState({
 
-  useEffect(() => {
-    isMounted.current = true;
+    traffic: [],
+    countries: [],
+    devices: [],
+    browsers: [],
+    topPages: [],
 
-    if (!siteId) {
-      setData(fallbackData);
-      setLoading(false);
+    totalVisitors: 0,
+    activeUsers: 0,
+    pageViews: 0,
+    sessions: 0,
+    bounceRate: 0,
+
+  });
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState(null);
+
+  const isMounted =
+    useRef(true);
+
+  const fetchingRef =
+    useRef(false);
+
+  /* ───────────────── FETCH ───────────────── */
+
+  const fetchData = useCallback(async () => {
+
+    /* PREVENT DUPLICATE */
+    if (fetchingRef.current) {
       return;
     }
 
-    const fetchData = async () => {
-      try {
+    if (!siteId) {
+
+      setData({
+
+        traffic: [],
+        countries: [],
+        devices: [],
+        browsers: [],
+        topPages: [],
+
+        totalVisitors: 0,
+        activeUsers: 0,
+        pageViews: 0,
+        sessions: 0,
+        bounceRate: 0,
+
+      });
+
+      setLoading(false);
+
+      return;
+    }
+
+    try {
+
+      fetchingRef.current = true;
+
+      /* ONLY FIRST LOAD */
+      if (!data?.traffic?.length) {
         setLoading(true);
-        setError(null);
-
-        const res = await getDashboardData(siteId);
-
-        if (!isMounted.current) return;
-
-        if (res) {
-          setData(res);
-        } else {
-          setData(fallbackData);
-        }
-      } catch (err) {
-        console.error("Dashboard hook error:", err);
-        if (isMounted.current) {
-          setError(err);
-          setData(fallbackData);
-        }
-      } finally {
-        if (isMounted.current) {
-          setLoading(false);
-        }
       }
-    };
+
+      setError(null);
+
+      const res =
+        await getDashboardData(siteId);
+
+      if (!isMounted.current) {
+        return;
+      }
+
+      /* SAFE DATA */
+      const safeData =
+
+        res || {
+
+          traffic: [],
+          countries: [],
+          devices: [],
+          browsers: [],
+          topPages: [],
+
+          totalVisitors: 0,
+          activeUsers: 0,
+          pageViews: 0,
+          sessions: 0,
+          bounceRate: 0,
+
+        };
+
+      /* ───────────────── TRAFFIC ───────────────── */
+
+      const transformedTraffic =
+
+        Array.isArray(
+          safeData?.traffic
+        )
+
+          ? safeData.traffic.map(
+              (item) => {
+
+                const value = Number(
+
+                  item?.visitors ||
+                  item?.pageViews ||
+                  item?.views ||
+                  item?.count ||
+                  0
+
+                );
+
+                return {
+
+                  time:
+
+                    item?.time ||
+                    item?.date ||
+                    item?.timestamp ||
+                    item?.createdAt,
+
+                  visitors:
+
+                    !isNaN(value) &&
+                    value >= 0
+
+                      ? value
+
+                      : 0,
+
+                };
+
+              }
+            )
+
+          : [];
+
+      /* ───────────────── FINAL ───────────────── */
+
+      setData({
+
+        ...safeData,
+
+        totalVisitors: Number(
+          safeData?.totalVisitors || 0
+        ),
+
+        activeUsers: Number(
+          safeData?.activeUsers || 0
+        ),
+
+        pageViews: Number(
+          safeData?.pageViews || 0
+        ),
+
+        sessions: Number(
+          safeData?.sessions || 0
+        ),
+
+        bounceRate: Number(
+          safeData?.bounceRate || 0
+        ),
+
+        traffic: transformedTraffic,
+
+        countries: Array.isArray(
+          safeData?.countries
+        )
+
+          ? safeData.countries
+
+          : [],
+
+        devices: Array.isArray(
+          safeData?.devices
+        )
+
+          ? safeData.devices
+
+          : [],
+
+        browsers: Array.isArray(
+          safeData?.browsers
+        )
+
+          ? safeData.browsers
+
+          : [],
+
+        topPages: Array.isArray(
+          safeData?.topPages
+        )
+
+          ? safeData.topPages
+
+          : [],
+
+      });
+
+    } catch (err) {
+
+      console.error(
+        "Dashboard hook error:",
+        err
+      );
+
+      if (isMounted.current) {
+
+        setError(err);
+
+      }
+
+    } finally {
+
+      fetchingRef.current = false;
+
+      if (isMounted.current) {
+        setLoading(false);
+      }
+
+    }
+
+  }, [siteId, data?.traffic?.length]);
+
+  /* ───────────────── EFFECT ───────────────── */
+
+  useEffect(() => {
+
+    isMounted.current = true;
 
     fetchData();
 
-    // 🔁 OPTIONAL: auto refresh every 30s
-    const interval = setInterval(fetchData, 30000);
+    /* AUTO REFRESH */
+    const interval = setInterval(() => {
+
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+
+        fetchData();
+
+      }
+
+    }, 30000);
 
     return () => {
-      isMounted.current = false;
-      clearInterval(interval);
-    };
-  }, [siteId]);
 
-  return { data, loading, error };
+      isMounted.current = false;
+
+      clearInterval(interval);
+
+    };
+
+  }, [fetchData]);
+
+  return {
+
+    data,
+
+    loading,
+
+    error,
+
+    refresh: fetchData,
+
+  };
+
 };

@@ -1,49 +1,65 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { BarChart3, ArrowRight, Sparkles } from "lucide-react";
+import { Plus } from "lucide-react";
 
 const EmptyDashboard = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="flex items-center justify-center h-[70vh]">
-      <div className="bg-white border border-gray-100 rounded-2xl p-10 max-w-sm w-full shadow-sm text-center transition-all duration-300">
+    <div className="min-h-[78vh] flex items-center justify-center px-6 py-10">
 
-        {/* ICON */}
-        <div className="relative w-16 h-16 mx-auto mb-6">
-          <div className="absolute inset-0 bg-indigo-100 rounded-2xl animate-pulse opacity-50" />
-          <div className="relative w-16 h-16 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center">
-            <BarChart3 className="w-7 h-7 text-indigo-600" />
-          </div>
-        </div>
+      <div className="w-full max-w-5xl text-center">
 
-        {/* TITLE */}
-        <h2 className="text-lg font-bold text-gray-900 mb-2">
-          No site selected
-        </h2>
+        {/* IMAGE */}
+        <img
+          src="/create.png"
+          alt="Create Project"
+          className="w-full max-w-[460px] mx-auto object-contain mb-6 select-none"
+        />
 
-        {/* SUBTITLE */}
-        <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-          Select or create a site to start viewing your analytics data in real-time.
+        {/* LABEL */}
+        <p className="text-violet-600 font-semibold text-sm uppercase tracking-[0.25em] mb-4">
+          CookieAI Workspace
         </p>
 
-        {/* CTA */}
-        <button
-          onClick={() => navigate("/sites")}
-          className="w-full flex items-center justify-center gap-2 h-11 bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold rounded-xl transition-all duration-300 shadow-sm hover:shadow-md group"
-        >
-          Go to Sites
-          <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-        </button>
+        {/* TITLE */}
+        <h1 className="text-5xl md:text-7xl font-black tracking-tight leading-[0.92] text-gray-900">
 
-        {/* HINT */}
-        <div className="flex items-center justify-center gap-1.5 mt-5">
-          <Sparkles size={10} className="text-gray-300" />
-          <p className="text-[10px] text-gray-300 font-medium uppercase tracking-widest">
-            Analytics starts instantly
-          </p>
+          Create Your First
+
+          <span className="block text-violet-600 mt-2">
+            Analytics Project
+          </span>
+
+        </h1>
+
+        {/* DESCRIPTION */}
+        <p className="mt-6 text-lg md:text-xl text-gray-500 leading-relaxed max-w-3xl mx-auto">
+
+          Monitor realtime visitors, sessions,
+          countries, devices, and AI-powered
+          insights with CookieAI.
+
+        </p>
+
+        {/* BUTTON */}
+        <div className="pt-8">
+
+          <button
+            onClick={() => navigate("/sites")}
+            className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl bg-violet-600 text-white text-lg font-semibold hover:bg-violet-700 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 shadow-lg shadow-violet-200"
+          >
+
+            <Plus size={18} />
+
+            Create Project
+
+          </button>
+
         </div>
+
       </div>
+
     </div>
   );
 };

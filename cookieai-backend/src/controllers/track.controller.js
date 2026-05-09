@@ -271,6 +271,23 @@ const processEvent = async (data, reqInfo) => {
     const activeUsers = activeUsersMap.has(realSiteId) ? activeUsersMap.get(realSiteId).size : 0;
     const pageViews = await Visit.countDocuments({ siteId: realSiteId });
 
+    /* ─── REALTIME TRAFFIC BUCKET ─── */
+    /* Build current UTC hour bucket — matches $dateTrunc(unit:"hour") */
+    const nowUtc = new Date();
+    nowUtc.setUTCMinutes(0, 0, 0);
+    const currentBucketStart = new Date(nowUtc);
+    const currentBucketEnd = new Date(nowUtc.getTime() + 3600000);
+
+    const currentBucketCount = await Visit.countDocuments({
+      siteId: realSiteId,
+      time: { $gte: currentBucketStart, $lt: currentBucketEnd }
+    });
+
+    const realtimeTrafficPoint = {
+      time: currentBucketStart.toISOString(),
+      visitors: currentBucketCount
+    };
+
     const [devices, browsers, countries, pages] = await Promise.all([
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
@@ -320,6 +337,7 @@ const processEvent = async (data, reqInfo) => {
     emitAnalyticsUpdate(realSiteId, {
       activeUsers,
       pageViews,
+      traffic: [realtimeTrafficPoint],   // frontend merges into existing graph
       devices: devices.map(d => ({ name: d._id || "Unknown", value: d.value })),
       browsers: browsers.map(b => ({ name: b._id || "Unknown", value: b.value })),
       countries: countries.map(c => ({ name: c._id || "Unknown", code: c.code || "XX", value: c.value })),

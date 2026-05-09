@@ -183,17 +183,25 @@ exports.getCharts = async (req, res) => {
     const is24h = range === "24h";
     const startTime = new Date(Date.now() - (is24h ? 24 : 7 * 24) * 60 * 60 * 1000);
 
+    /* ─── TRAFFIC AGGREGATION ─── */
+    /* Use $dateTrunc for proper UTC bucketing — guaranteed to match JS Date ISO keys */
     const [trafficRaw, devicesRaw, browsersRaw, countriesRaw] = await Promise.all([
-      Event.aggregate([
-        { $match: { siteId: realSiteId, type: "page_view", timestamp: { $gte: startTime } } },
-        { 
-          $group: { 
-            _id: { $dateToString: { format: is24h ? "%Y-%m-%dT%H:00" : "%b %d", date: "$timestamp" } }, 
-            visitors: { $addToSet: "$sessionId" },
-            sessions: { $sum: 1 } // 🔥 simplified session approximation (can be refined)
-          } 
+      Visit.aggregate([
+        { $match: { siteId: realSiteId, time: { $gte: startTime } } },
+        {
+          $group: {
+            _id: {
+              $dateTrunc: {
+                date: "$time",
+                unit: is24h ? "hour" : "day",
+                timezone: "UTC"
+              }
+            },
+            visitors: { $sum: 1 }          // cumulative page views per bucket
+          }
         },
-        { $project: { time: "$_id", visitors: { $size: "$visitors" }, sessions: 1 } }
+        { $project: { _id: 0, time: "$_id", visitors: 1 } },
+        { $sort: { time: 1 } }
       ]),
       Visit.aggregate([
         { $match: { siteId: realSiteId } },
@@ -212,14 +220,40 @@ exports.getCharts = async (req, res) => {
       ])
     ]);
 
+    /* ─── BUILD FULL TIMELINE ─── */
+    /* Map from ISO bucket key → visitors count from DB */
+    const dbMap = new Map(
+      trafficRaw
+        .filter(t => t.time instanceof Date && !isNaN(t.time))
+        .map(t => [t.time.toISOString(), Number(t.visitors) || 0])
+    );
+
     const now = new Date();
-    const map = new Map(trafficRaw.map(t => [t.time, { v: t.visitors, s: t.sessions }]));
-    const traffic = Array.from({ length: is24h ? 24 : 7 }).map((_, i) => {
-      const d = is24h ? new Date(now.getTime() - (23 - i) * 3600000) : new Date(now.getTime() - (6 - i) * 86400000);
-      const label = is24h ? d.toISOString().slice(0, 13) + ":00" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      const entry = map.get(label) || { v: 0, s: 0 };
-      return { time: label, visitors: entry.v, sessions: entry.s };
+    const bucketCount = is24h ? 24 : 7;
+
+    const traffic = Array.from({ length: bucketCount }).map((_, i) => {
+      /* Build the exact bucket Date the DB would have produced */
+      const offset = is24h
+        ? (bucketCount - 1 - i) * 3600000   // hours ago
+        : (bucketCount - 1 - i) * 86400000;  // days ago
+
+      const d = new Date(now.getTime() - offset);
+
+      /* Truncate to UTC hour or UTC day — same as $dateTrunc */
+      const bucket = new Date(d);
+      if (is24h) {
+        bucket.setUTCMinutes(0, 0, 0);
+      } else {
+        bucket.setUTCHours(0, 0, 0, 0);
+      }
+
+      const isoKey = bucket.toISOString();
+      const visitors = dbMap.get(isoKey) || 0;
+
+      return { time: isoKey, visitors };
     });
+
+    console.log(`[Charts] ${range} → ${traffic.filter(t => t.visitors > 0).length}/${bucketCount} non-zero buckets`);
 
     return res.json({
       success: true, siteId: realSiteId, range, traffic,

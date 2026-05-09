@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Check, Copy, ShieldCheck, Rocket } from "lucide-react";
 
-const STORAGE_KEY = "cookieai_tracking_done";
-
 const LiveSetupBanner = ({ site, hasData = false }) => {
   const [copied, setCopied] = useState(false);
   const [visible, setVisible] = useState(true);
@@ -14,52 +12,83 @@ const LiveSetupBanner = ({ site, hasData = false }) => {
   const BASE =
     import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
+  /* ---------- UNIQUE KEY PER SITE ---------- */
+  const STORAGE_KEY = `cookieai_tracking_done_${site?.siteId}`;
+
   /* ---------- LOAD VISIBILITY ---------- */
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "true") {
-      setVisible(false);
-    }
-  }, []);
+    if (!site?.siteId) return;
 
-  /* ---------- AUTO HIDE ---------- */
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved === "true") {
+        setVisible(false);
+      } else {
+        setVisible(true);
+      }
+    } catch {
+      setVisible(true);
+    }
+  }, [site?.siteId]);
+
+  /* ---------- AUTO HIDE WHEN LIVE ---------- */
   useEffect(() => {
     if (isLive && !hasTriggered.current) {
       hasTriggered.current = true;
 
-      localStorage.setItem(STORAGE_KEY, "true");
+      try {
+        localStorage.setItem(STORAGE_KEY, "true");
+      } catch {}
 
       setTimeout(() => setVisible(false), 2000);
     }
-  }, [isLive]);
+  }, [isLive, STORAGE_KEY]);
 
-  /* ---------- RESET ON NEW SITE ---------- */
-  useEffect(() => {
-    if (site?.siteId) {
-      localStorage.removeItem(STORAGE_KEY);
-      setVisible(true);
-      hasTriggered.current = false;
-    }
-  }, [site?.siteId]);
-
-  /* ---------- COPY ---------- */
+  /* ---------- COPY (WORKS LOCAL + PROD) ---------- */
   const handleCopy = useCallback(() => {
     if (!site?.siteId) return;
 
     const tag = `<script defer data-site-id="${site.siteId}" src="${BASE}/tracker.js"></script>`;
 
-    navigator.clipboard.writeText(tag);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(tag)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        })
+        .catch(() => fallbackCopy(tag));
+    } else {
+      fallbackCopy(tag);
+    }
+
+    function fallbackCopy(text) {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      } catch (err) {
+        console.error("Copy failed:", err);
+      }
+    }
   }, [site, BASE]);
 
+  /* ---------- HIDE ---------- */
   if (!site || !visible) return null;
 
   return (
-    <div className="w-full max-w-lg mx-auto mt-6 px-4">
+    <div className="w-full max-w-md mx-auto mt-6 px-4">
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
 
-        {/* STATUS BAR */}
+        {/* TOP BAR */}
         <div
           className={`h-[2px] ${
             isLive ? "bg-emerald-500" : "bg-amber-400"
@@ -69,7 +98,7 @@ const LiveSetupBanner = ({ site, hasData = false }) => {
         <div className="px-6 py-6 text-center">
 
           {/* ICON */}
-          <div className="w-12 h-12 mx-auto mb-4 flex items-center justify-center rounded-lg bg-gray-50">
+          <div className="w-11 h-11 mx-auto mb-4 flex items-center justify-center rounded-lg bg-gray-50">
             {isLive ? (
               <ShieldCheck className="w-5 h-5 text-emerald-600" />
             ) : (

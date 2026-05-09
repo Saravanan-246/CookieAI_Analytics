@@ -3,25 +3,38 @@
     if (window.__cookieai_loaded) return;
     window.__cookieai_loaded = true;
 
-    const script = document.currentScript || document.querySelector("script[data-site-id]");
-    const siteId = script?.getAttribute("data-site-id") || window.__COOKIEAI_SITE_ID || null;
+    /* ---------- SCRIPT + SITE ---------- */
+    const script =
+      document.currentScript ||
+      document.querySelector("script[data-site-id]");
+
+    const siteId =
+      script?.getAttribute("data-site-id") ||
+      window.__COOKIEAI_SITE_ID ||
+      null;
 
     if (!siteId) return;
 
     let origin;
     try {
-      origin = script?.src ? new URL(script.src).origin : "http://localhost:5000";
+      origin = script?.src
+        ? new URL(script.src).origin
+        : location.origin;
     } catch {
-      origin = "http://localhost:5000";
+      origin = location.origin;
     }
 
     const TRACK_API = `${origin}/api/track`;
 
+    /* ---------- SESSION ---------- */
+    const SESSION_KEY = "cookieai_session";
     const sessionId =
-      localStorage.getItem("cookieai_session") ||
+      localStorage.getItem(SESSION_KEY) ||
       (() => {
-        const id = Math.random().toString(36).slice(2);
-        localStorage.setItem("cookieai_session", id);
+        const id =
+          Date.now().toString(36) +
+          Math.random().toString(36).slice(2, 8);
+        localStorage.setItem(SESSION_KEY, id);
         return id;
       })();
 
@@ -52,75 +65,94 @@
       return "Other";
     }
 
-    function trackPage() {
+    /* ---------- SEND EVENT ---------- */
+    function sendEvent(payload, useBeacon = false) {
+      const body = JSON.stringify(payload);
+
+      if (useBeacon && navigator.sendBeacon) {
+        navigator.sendBeacon(TRACK_API, body);
+        return;
+      }
+
       fetch(TRACK_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          siteId,
-          sessionId,
-          type: "page_view",
-          path: window.location.pathname,
-          device: getDeviceType(),
-          browser: getBrowser(),
-          os: getOS(),
-          userAgent: navigator.userAgent,
-          timestamp: Date.now()
-        })
-      }).catch(console.error);
+        body,
+        keepalive: true
+      }).catch(() => {});
     }
 
-    /* ---------- SITE VALIDATION + START ---------- */
-    function initTracking() {
-      trackPage();
+    /* ---------- PAGE VIEW ---------- */
+    let lastTracked = 0;
 
-      // Track SPA navigation
-      const originalPush = history.pushState;
-      history.pushState = function () {
-        originalPush.apply(this, arguments);
-        setTimeout(trackPage, 50);
-      };
+    function trackPage() {
+      const now = Date.now();
 
-      const originalReplace = history.replaceState;
-      history.replaceState = function () {
-        originalReplace.apply(this, arguments);
-        setTimeout(trackPage, 50);
-      };
+      // prevent rapid duplicate calls
+      if (now - lastTracked < 300) return;
+      lastTracked = now;
 
-      window.addEventListener("popstate", trackPage);
-
-      // Track visibility for instant active/inactive status
-      document.addEventListener("visibilitychange", function () {
-        // Use sendBeacon if available for better reliability when leaving
-        const payload = JSON.stringify({
-          type: document.hidden ? "user_hidden" : "user_visible",
-          siteId: siteId,
-          sessionId: sessionId,
-          timestamp: Date.now()
-        });
-        
-        if (document.hidden && navigator.sendBeacon) {
-          navigator.sendBeacon(TRACK_API, payload);
-        } else {
-          fetch(TRACK_API, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload
-          }).catch(console.error);
-        }
+      sendEvent({
+        type: "page_view",
+        siteId,
+        sessionId,
+        path: location.pathname,
+        url: location.href,
+        referrer: document.referrer || null,
+        device: getDeviceType(),
+        browser: getBrowser(),
+        os: getOS(),
+        userAgent: navigator.userAgent,
+        timestamp: now
       });
     }
 
-    // Check if site is still active before tracking
+    /* ---------- INIT ---------- */
+    function initTracking() {
+      trackPage();
+
+      // Prevent double patch
+      if (!window.__cookieai_history_patched) {
+        window.__cookieai_history_patched = true;
+
+        const originalPush = history.pushState;
+        history.pushState = function () {
+          originalPush.apply(this, arguments);
+          setTimeout(trackPage, 50);
+        };
+
+        const originalReplace = history.replaceState;
+        history.replaceState = function () {
+          originalReplace.apply(this, arguments);
+          setTimeout(trackPage, 50);
+        };
+
+        window.addEventListener("popstate", trackPage);
+      }
+
+      /* ---------- VISIBILITY ---------- */
+      document.addEventListener("visibilitychange", function () {
+        const payload = {
+          type: document.hidden ? "user_hidden" : "user_visible",
+          siteId,
+          sessionId,
+          timestamp: Date.now()
+        };
+
+        sendEvent(payload, document.hidden);
+      });
+    }
+
+    /* ---------- SITE STATUS CHECK ---------- */
     fetch(`${origin}/api/site/status?siteId=${siteId}`)
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data && data.active) {
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.active) {
           initTracking();
         }
       })
-      .catch(function () {
-        // If status check fails, track anyway (network error, not deletion)
+      .catch(() => {
+        // fallback: track anyway
         initTracking();
       });
 

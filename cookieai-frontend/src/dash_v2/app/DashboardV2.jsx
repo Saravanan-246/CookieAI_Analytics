@@ -1,3 +1,5 @@
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../dash_v2/app/DashboardLayout";
 
 import KpiGrid from "../../dash_v2/components/cards/KpiGrid";
@@ -16,217 +18,364 @@ import LiveSetupBanner from "../../components/analytics/LiveSetupBanner";
 import EmptyDashboard from "../../components/ui/EmptyDashboard";
 import SkeletonDashboard from "../../components/ui/SkeletonDashboard";
 
+// PREMIUM UI COMPONENTS
+import GlowCard from "../../dash_v2/components/premium/GlowCard";
+import GlassPanel from "../../dash_v2/components/premium/GlassPanel";
+import SectionHeader from "../../dash_v2/components/premium/SectionHeader";
+import LiveBadge from "../../dash_v2/components/premium/LiveBadge";
+import GradientButton from "../../dash_v2/components/premium/GradientButton";
+
+import { colors, radii, shadows, gradients } from "../../dash_v2/styles/theme";
+
 import { useDashboardV2 } from "../../dash_v2/hooks/useDashboardV2";
 import { useRealtime } from "../../dash_v2/hooks/useRealtime";
 
-import { getActiveSiteId } from "../../utils/siteState";
-import { RefreshCw, Filter, Globe, Users } from "lucide-react";
+import { getActiveSiteId, setActiveSiteId } from "../../utils/siteState";
+import { siteService } from "../../services/site.service";
+import {
+  Globe,
+  Users,
+  LayoutDashboard,
+  ChevronRight,
+  TrendingUp,
+  Activity,
+  ArrowUpRight
+} from "lucide-react";
 
 export default function DashboardV2() {
+  const navigate = useNavigate();
   const siteId = getActiveSiteId();
 
-  /* ✅ HOOKS ALWAYS RUN */
-  const { data, loading, refresh } = useDashboardV2(siteId || null);
-  const { activeUsers, events } = useRealtime(siteId || null);
+  const [trafficRange, setTrafficRange] = useState("24h");
+  const [sites, setSites] = useState([]);
 
-  const mergedData = {
-    ...data,
-    activeUsers: activeUsers ?? data?.activeUsers ?? 0,
-  };
+  useEffect(() => {
+    const loadSites = async () => {
+      try {
+        const list = await siteService.getSites();
+        setSites(list || []);
+      } catch (err) {
+        console.error("Failed to load sites:", err);
+      }
+    };
+    loadSites();
+  }, []);
 
-  const hasSite = Boolean(siteId);
-  const hasData = mergedData && (mergedData.totalVisitors > 0 || mergedData.pageViews > 0) && !loading;
+/* ✅ HOOKS ALWAYS RUN */
+const {
+  data,
+  loading,
+} = useDashboardV2(siteId || null);
 
-  /* ================= DERIVED (UI ONLY) ================= */
-  const topCountryName = mergedData?.countries?.[0]?.name || mergedData?.countries?.[0]?.country || "No data yet";
-  const sessionsToday = Number(mergedData?.sessions || mergedData?.totalVisitors) || 0;
-  const activeCount = mergedData?.activeUsers ?? 0;
+const {
+  activeUsers,
+  events,
+  analytics,
+  traffic: realtimeTraffic,
+} = useRealtime(siteId || null);
 
-return (
-  <DashboardLayout>
-    <div className="max-w-[1400px] mx-auto px-6 py-6 space-y-6">
+/* ✅ MERGED REAL DATA */
+const mergedData = {
+  ...data,
+  activeUsers: typeof activeUsers === "number" ? activeUsers : Number(data?.activeUsers || 0),
+  traffic: Array.isArray(data?.traffic) ? data.traffic : [],
+  sessions: Number(data?.sessions || 0),
+  pageViews: Number(data?.pageViews || 0),
+  totalVisitors: Number(data?.totalVisitors || 0),
+  bounceRate: Number(data?.bounceRate || 0),
+};
 
-      {/* ───────────────── HEADER ───────────────── */}
-      <div className="flex items-center justify-between">
+const hasSite = Boolean(siteId);
+const hasData = hasSite && (
+  Number(mergedData?.totalVisitors || 0) > 0 ||
+  Number(mergedData?.pageViews || 0) > 0 ||
+  Number(mergedData?.sessions || 0) > 0 ||
+  (Array.isArray(mergedData?.traffic) && mergedData.traffic.length > 0) ||
+  (Array.isArray(realtimeTraffic) && realtimeTraffic.length > 0)
+);
 
-        {/* LEFT */}
-        <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold text-gray-900 tracking-tight">
-            Overview
-          </h1>
+const activeSite = sites.find((s) => s?.siteId === siteId) || sites.find((s) => s?._id === siteId);
+const activeSiteName = activeSite?.name || "Select Project";
 
-          <div className="h-4 w-[1px] bg-gray-200" />
+const handleSiteChange = (e) => {
+  const newId = e.target.value;
+  if (!newId) return;
+  const selected = sites.find((s) => s?._id === newId || s?.siteId === newId);
+  const idToUse = selected?.siteId || selected?._id || newId;
+  setActiveSiteId(idToUse);
+  navigate(`/analytics/${idToUse}`);
+};
 
-          <span className="text-xs font-medium text-gray-400 uppercase tracking-wide truncate max-w-[160px]">
-            {siteId || "Select Site"}
-          </span>
+const getNormalizedTraffic = () => {
+  const rawTraffic = [
+    ...(Array.isArray(mergedData?.traffic) ? mergedData.traffic : []),
+    ...(Array.isArray(realtimeTraffic) ? realtimeTraffic : []),
+  ];
+
+  const trafficMap = new Map();
+  const now = Date.now();
+
+  rawTraffic.forEach((item) => {
+    const rawDate = item?.time || item?.date || item?.timestamp || item?.createdAt;
+    if (!rawDate) return;
+    const parsed = new Date(rawDate);
+    if (isNaN(parsed.getTime())) return;
+    const diff = now - parsed.getTime();
+    if (trafficRange === "24h" && diff > 25 * 60 * 60 * 1000) return;
+    if (trafficRange === "7d" && diff > 8 * 24 * 60 * 60 * 1000) return;
+
+    const visits = Number(item?.visitors ?? item?.visits ?? item?.views ?? item?.pageViews ?? item?.count ?? item?.totalVisitors ?? item?.activeUsers ?? 0);
+    const bucket = new Date(parsed);
+    if (trafficRange === "24h") bucket.setMinutes(0, 0, 0);
+    else bucket.setHours(0, 0, 0, 0);
+
+    const key = bucket.toISOString();
+    trafficMap.set(key, Math.max(visits, trafficMap.get(key) || 0));
+  });
+
+  return Array.from(trafficMap.entries())
+    .map(([time, visits]) => ({ time, visits }))
+    .filter((item) => item?.time && !isNaN(new Date(item.time).getTime()) && typeof item.visits === "number")
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+};
+
+const [persistentTraffic, setPersistentTraffic] = useState([]);
+const prevRangeRef = useRef(trafficRange);
+
+useEffect(() => {
+  const normalized = getNormalizedTraffic();
+  const rangeChanged = prevRangeRef.current !== trafficRange;
+  prevRangeRef.current = trafficRange;
+
+  if (rangeChanged) {
+    setPersistentTraffic(normalized);
+    return;
+  }
+
+  if (normalized.length > 0) {
+    setPersistentTraffic((prev) => {
+      const map = new Map(prev.map((item) => [item.time, item]));
+      normalized.forEach((item) => map.set(item.time, item));
+      return Array.from(map.values()).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    });
+  }
+}, [mergedData?.traffic, realtimeTraffic, trafficRange]);
+
+const finalTrafficData = Array.isArray(persistentTraffic)
+  ? persistentTraffic.filter((item) => item?.time && !isNaN(new Date(item.time).getTime()) && typeof item?.visits === "number")
+  : [];
+
+  return (
+    <DashboardLayout>
+      <div className="max-w-[1600px] mx-auto px-6 lg:px-10 py-10 space-y-10">
+
+        {/* ───────────────── PREMIUM HEADER ───────────────── */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-black/[0.05]">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div 
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-black text-white shadow-lg"
+                style={{ borderRadius: radii.md }}
+              >
+                <LayoutDashboard size={20} />
+              </div>
+              <div className="h-4 w-px bg-black/10 mx-1" />
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-black/[0.03] rounded-lg border border-black/[0.05]">
+                <Globe size={14} className="text-black/40" />
+                <span className="text-[13px] font-bold text-black/70 tracking-tight">
+                  {activeSiteName}
+                </span>
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <h1 className="text-3xl font-black text-black tracking-[-0.03em]">
+                Project Overview
+              </h1>
+              <p className="text-[15px] text-black/40 font-medium">
+                Live monitoring and traffic analytics for your domain.
+              </p>
+            </div>
+          </div>
 
           {hasSite && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-50 text-[10px] font-medium text-emerald-600 rounded-md border border-emerald-100">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Live
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <select
+                  value={siteId || ""}
+                  onChange={handleSiteChange}
+                  className="
+                    appearance-none h-11 pl-4 pr-10
+                    rounded-xl border border-black/[0.08]
+                    bg-white text-[13px] font-bold text-black
+                    outline-none shadow-sm hover:border-black/20
+                    transition-all cursor-pointer min-w-[200px]
+                  "
+                >
+                  <option value="" disabled>Switch Project</option>
+                  {sites.map((site) => (
+                    <option key={site.siteId || site._id} value={site.siteId || site._id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-black/30">
+                  <ChevronRight size={14} className="rotate-90" />
+                </div>
+              </div>
+              <LiveBadge label="Realtime" connected={true} />
             </div>
           )}
         </div>
 
-        {/* RIGHT */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => refresh?.()}
-            className="p-2 border border-gray-100 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          </button>
+        {/* ───────────────── NO SITE ───────────────── */}
+        {!hasSite && <EmptyDashboard />}
 
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition">
-            <Filter size={12} />
-            Filters
-          </button>
-        </div>
-      </div>
+        {/* ───────────────── SETUP BANNER ───────────────── */}
+        {hasSite && !hasData && !loading && (
+          <GlassPanel className="border-violet-100 shadow-violet-100/20">
+            <LiveSetupBanner
+              socketConnected={true}
+              hasData={false}
+              events={events || []}
+            />
+          </GlassPanel>
+        )}
 
-      {/* ───────────────── NO SITE ───────────────── */}
-      {!hasSite && <EmptyDashboard />}
+        {/* ───────────────── MAIN DASHBOARD ───────────────── */}
+        {hasSite && (
+          <div className="space-y-10">
 
-      {/* ───────────────── LOADING / NO DATA ───────────────── */}
-      {hasSite && !hasData && (
-        <div className="space-y-6">
-          <LiveSetupBanner
-            socketConnected={true}
-            hasData={false}
-            events={events || []}
-          />
-          <SkeletonDashboard />
-        </div>
-      )}
-
-      {/* ───────────────── MAIN DASHBOARD ───────────────── */}
-      {hasSite && hasData && (
-        <div className="space-y-6">
-
-          {/* ───── HERO STRIP ───── */}
-          <div className="bg-white border border-gray-100 rounded-2xl p-5 flex items-center justify-between shadow-sm">
-
-            <div>
-              <h2 className="text-sm font-semibold text-gray-900">
-                Real-time Summary
-              </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Live performance insights
-              </p>
+            {/* ── KPI GRID ── */}
+            <div className="relative">
+               <KpiGrid data={mergedData} loading={loading} />
             </div>
 
-            <div className="flex items-center gap-4">
+            {/* ── TRAFFIC + INSIGHTS ── */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
 
-              {/* ACTIVE */}
-              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl">
-                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {mergedData?.activeUsers ?? 0}
-                  </p>
-                  <p className="text-[10px] text-gray-400">Active</p>
-                </div>
-              </div>
+              {/* TRAFFIC CHART */}
+              <GlowCard
+                noPadding
+                className="xl:col-span-8 group"
+                glowColor="rgba(124,58,237,0.06)"
+              >
+                <div className="p-8">
+                  <SectionHeader
+                    title="Traffic Distribution"
+                    subtitle="Visitor counts aggregated by time"
+                    badge={<LiveBadge label="Live" />}
+                    action={
+                      <div className="flex p-1 bg-black/[0.03] rounded-xl border border-black/[0.03]">
+                        <GradientButton
+                          active={trafficRange === "24h"}
+                          onClick={() => setTrafficRange("24h")}
+                          size="sm"
+                          className="!rounded-lg"
+                        >
+                          24 Hours
+                        </GradientButton>
+                        <GradientButton
+                          active={trafficRange === "7d"}
+                          onClick={() => setTrafficRange("7d")}
+                          size="sm"
+                          className="!rounded-lg"
+                        >
+                          7 Days
+                        </GradientButton>
+                      </div>
+                    }
+                  />
 
-              {/* SESSIONS */}
-              <div className="hidden sm:flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl">
-                <Users size={14} className="text-indigo-500" />
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    {(mergedData?.sessions || 0).toLocaleString()}
-                  </p>
-                  <p className="text-[10px] text-gray-400">Sessions</p>
+                  <div className="mt-10 h-[320px]">
+                    <TrafficChart
+                      data={finalTrafficData}
+                      loading={loading}
+                      range={trafficRange}
+                    />
+                  </div>
                 </div>
-              </div>
+              </GlowCard>
 
-              {/* COUNTRY */}
-              <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-100 rounded-xl">
-                <Globe size={14} className="text-violet-500" />
-                <div>
-                  <p className="text-sm font-semibold text-gray-900 truncate max-w-[80px]">
-                    {mergedData?.countries?.[0]?.name || "—"}
-                  </p>
-                  <p className="text-[10px] text-gray-400">Top Country</p>
-                </div>
+              {/* INSIGHTS */}
+              <div className="xl:col-span-4">
+                <GlowCard className="h-full !p-0 overflow-hidden border-none shadow-xl shadow-black/[0.02]">
+                  <InsightsPanel data={mergedData} loading={loading} />
+                </GlowCard>
               </div>
 
             </div>
-          </div>
 
-          {/* ───── KPI GRID ───── */}
-          <KpiGrid data={mergedData} loading={loading} />
+            {/* ── TOP PAGES + LIVE ACTIVITY ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-          {/* ───── CHART + INSIGHTS ───── */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* TOP PAGES */}
+              <GlowCard noPadding className="h-[480px] flex flex-col group" glowColor="rgba(59,130,246,0.04)">
+                <div className="px-8 pt-8 pb-6 border-b border-black/[0.03]">
+                  <SectionHeader
+                    title="Popular Destinations"
+                    subtitle="Most frequently visited page paths"
+                    badge={
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-black/5 text-black/50">
+                        {mergedData?.topPages?.length || 0}
+                      </span>
+                    }
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4">
+                  <VisitedPagesCard
+                    pages={mergedData?.topPages || []}
+                    loading={loading}
+                  />
+                </div>
+              </GlowCard>
 
-            <div className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">
-                Traffic Overview
-              </h3>
+              {/* LIVE ACTIVITY */}
+              <GlowCard noPadding className="h-[480px] flex flex-col group" glowColor="rgba(16,185,129,0.04)">
+                <div className="px-8 pt-8 pb-6 border-b border-black/[0.03]">
+                  <SectionHeader
+                    title="Real-time Stream"
+                    subtitle="Incoming event signals and user actions"
+                    badge={<LiveBadge label="Pulse" />}
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4">
+                  <LiveActivity siteId={siteId} />
+                </div>
+              </GlowCard>
 
-              <TrafficChart
-                data={mergedData?.traffic || []}
-                loading={loading}
-              />
             </div>
 
-            <InsightsPanel data={mergedData} loading={loading} />
-          </div>
+            {/* ── COUNTRIES + DEVICES ── */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
 
-          {/* ───── TOP + LIVE ───── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* COUNTRIES */}
+              <GlowCard className="xl:col-span-5 !p-8" glowColor="rgba(59,130,246,0.04)">
+                <SectionHeader
+                  title="Global Presence"
+                  subtitle="Visitor distribution by country"
+                  className="mb-8"
+                />
+                <TopCountries
+                  countries={mergedData?.countries || []}
+                  loading={loading}
+                />
+              </GlowCard>
 
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 h-[380px] flex flex-col shadow-sm">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">
-                Top Pages
-              </h3>
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <VisitedPagesCard
-                  pages={mergedData?.topPages || []}
+              {/* DEVICES + BROWSERS */}
+              <div className="xl:col-span-7">
+                <BrowserDeviceMiniCards
+                  devices={mergedData?.devices || []}
+                  browsers={mergedData?.browsers || []}
                   loading={loading}
                 />
               </div>
+
             </div>
 
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 h-[380px] flex flex-col shadow-sm">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">
-                Live Activity
-              </h3>
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <LiveActivity siteId={siteId} />
-              </div>
-            </div>
           </div>
-
-          {/* ───── GEO + DEVICE ───── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-            <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
-              <h4 className="text-xs text-gray-400 mb-3 uppercase tracking-wide">
-                Countries
-              </h4>
-              <TopCountries
-                countries={mergedData?.countries || []}
-                loading={loading}
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <BrowserDeviceMiniCards
-                devices={mergedData?.devices || []}
-                browsers={mergedData?.browsers || []}
-                loading={loading}
-              />
-            </div>
-          </div>
-
-          {/* ───── LIVE STRIP ───── */}
-          <LiveUsers siteId={siteId} variant="strip" />
-
-        </div>
-      )}
-    </div>
-  </DashboardLayout>
-);
+        )}
+      </div>
+    </DashboardLayout>
+  );
 }

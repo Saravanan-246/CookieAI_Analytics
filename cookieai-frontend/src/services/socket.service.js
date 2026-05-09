@@ -13,7 +13,10 @@ let currentSiteId = null;
 let connectionAttempts = 0;
 
 const SOCKET_URL =
-  import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+  import.meta.env.VITE_SOCKET_URL ||
+  (window.location.hostname === "localhost"
+    ? "http://localhost:5000"
+    : "https://cookieai-analytics-backend.onrender.com");
 
 const SOCKET_OPTIONS = {
   transports: ["websocket"],
@@ -23,6 +26,7 @@ const SOCKET_OPTIONS = {
   reconnectionDelay: 1000,
   reconnectionDelayMax: 10000,
   timeout: 20000,
+  secure: true, // ✅ important for https
 };
 
 let reconnectCallbacks = [];

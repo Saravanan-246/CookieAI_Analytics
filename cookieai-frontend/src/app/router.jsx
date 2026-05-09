@@ -3,9 +3,8 @@ import { ProtectedRoute } from "./guards";
 
 import AppLayout from "../components/layout/AppLayout";
 
-/* 🔥 DASHBOARDS */
+/* 🔥 REAL DASHBOARD */
 import { DashboardV2 } from "../dash_v2";
-import DashboardHome from "../dash_v2/app/DashboardHome";
 
 /* ---------- PAGES ---------- */
 import Analytics from "../pages/analytics/Analytics";
@@ -21,6 +20,7 @@ import ResetPassword from "../pages/auth/ResetPassword";
 
 /* ---------- AUTH GUARD ---------- */
 const PublicRoute = ({ children }) => {
+
   const token = localStorage.getItem("token");
 
   if (token) {
@@ -32,6 +32,7 @@ const PublicRoute = ({ children }) => {
 
 /* ---------- ROUTER ---------- */
 export const router = createBrowserRouter([
+
   /* ================= AUTH ================= */
   {
     path: "/login",
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
       </PublicRoute>
     ),
   },
+
   {
     path: "/register",
     element: (
@@ -49,10 +51,12 @@ export const router = createBrowserRouter([
       </PublicRoute>
     ),
   },
+
   {
     path: "/forgot-password",
     element: <ForgotPassword />,
   },
+
   {
     path: "/reset-password",
     element: <ResetPassword />,
@@ -66,58 +70,66 @@ export const router = createBrowserRouter([
         <AppLayout />
       </ProtectedRoute>
     ),
+
     children: [
-      /* 🔥 DEFAULT */
+
+      /* DEFAULT */
       {
         index: true,
         element: <Navigate to="dashboard" replace />,
       },
 
-      /* 🔥 GLOBAL DASHBOARD */
+      /* 🔥 MAIN REAL DASHBOARD */
       {
         path: "dashboard",
-        element: <DashboardHome />,
+        element: <DashboardV2 />,
       },
 
-      /* 🔥 SITE DASHBOARD */
+      /* 🔥 OPTIONAL SITE DASHBOARD */
       {
         path: "dashboard/:siteId",
         element: <DashboardV2 />,
       },
 
-      /* ---------- MAIN ---------- */
+      /* ---------- MAIN PAGES ---------- */
       {
         path: "analytics/:siteId",
         element: <Analytics />,
       },
+
       {
         path: "sites",
         element: <Sites />,
       },
+
       {
         path: "billing",
         element: <Billing />,
       },
+
       {
         path: "profile",
         element: <Profile />,
       },
+
       {
         path: "settings",
         element: <Settings />,
       },
 
-      /* 🔥 APP 404 */
+      /* APP 404 */
       {
         path: "*",
         element: <Navigate to="dashboard" replace />,
       },
+
     ],
   },
 
-  /* 🔥 GLOBAL FALLBACK */
+  /* GLOBAL FALLBACK */
   {
     path: "*",
     element: <Navigate to="/login" replace />,
   },
+
 ]);
